@@ -4,15 +4,15 @@
 
 ## 技术栈
 
-- **Next.js 16.0.1** - React 框架 (App Router)
+- **Next.js 16.0.1** - React 框架（App Router）
 - **React 19.2.0** - UI 库
 - **TypeScript 5+** - 类型安全
 - **Tailwind CSS 4** - 样式框架
 - **Axios** - HTTP 客户端
-- **React Query** - 数据获取和缓存
-- **Zustand** - 状态管理
+- **React Query (TanStack Query)** - 数据获取和缓存
+- **Zustand** - 轻量级状态管理
 - **React Hot Toast** - 通知提示
-- **date-fns** - 日期处理
+- **date-fns** - 日期格式化
 
 ## 项目结构
 
@@ -118,23 +118,24 @@ npm install
 
 ### 已实现
 
-- ✅ 项目结构搭建
-- ✅ TypeScript 配置
-- ✅ 环境变量配置
+- ✅ 用户认证（注册、登录、邮箱验证）
+- ✅ 文件浏览和搜索
+- ✅ 文件上传（拖拽上传）
+- ✅ 文件删除和预览
+- ✅ 文件过滤（类型、排序）
+- ✅ 管理员日志查看
+- ✅ 管理员统计面板
+- ✅ 响应式设计
+- ✅ 错误边界和加载状态
 - ✅ 中文本地化
-- ✅ API 客户端配置
-- ✅ 状态管理（Zustand）
-- ✅ 工具函数（格式化、验证）
-- ✅ 类型定义
+- ✅ 手绘风格 UI 组件
 
-### 待实现
+### 核心组件
 
-- ⏳ 认证页面（登录、注册）
-- ⏳ 文件浏览界面
-- ⏳ 文件上传功能
-- ⏳ 文件删除功能
-- ⏳ 管理员页面
-- ⏳ 手绘风格组件
+- **认证页面**: 登录、注册、邮箱验证
+- **文件管理**: 上传区、文件网格、文件卡片
+- **管理员面板**: 操作日志、统计数据
+- **通用组件**: 按钮、输入框、模态框、加载动画
 
 ## 设计系统
 
@@ -219,17 +220,91 @@ server {
 }
 ```
 
-## 贡献指南
+## 开发指南
 
-1. 遵循 TypeScript 严格模式
-2. 使用中文注释和文档
-3. 保持组件简洁和可复用
-4. 遵循手绘风格设计规范
+### 添加新页面
+
+```typescript
+// app/new-page/page.tsx
+export default function NewPage() {
+  return <div>新页面</div>
+}
+```
+
+### 添加新组件
+
+```typescript
+// components/NewComponent.tsx
+interface NewComponentProps {
+  title: string;
+}
+
+export default function NewComponent({ title }: NewComponentProps) {
+  return <div>{title}</div>
+}
+```
+
+### 使用 API
+
+```typescript
+import { useQuery } from '@tanstack/react-query';
+import { filesApi } from '@/lib/api/files';
+
+const { data, isLoading } = useQuery({
+  queryKey: ['files'],
+  queryFn: () => filesApi.getFiles()
+});
+```
+
+### 状态管理
+
+```typescript
+import { useAuthStore } from '@/stores/authStore';
+
+const { user, isAuthenticated, setAuth } = useAuthStore();
+```
+
+## 性能优化
+
+- 使用 Next.js 图片优化
+- React Query 自动缓存
+- 懒加载组件
+- 代码分割
+
+## 浏览器支持
+
+- Chrome/Edge (最新版)
+- Firefox (最新版)
+- Safari (最新版)
+
+## 故障排除
+
+### 端口被占用
+```bash
+# Windows
+netstat -ano | findstr :3000
+taskkill /PID <PID> /F
+
+# Linux/Mac
+lsof -ti:3000 | xargs kill
+```
+
+### 依赖问题
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
+
+### 构建失败
+```bash
+rm -rf .next
+npm run build
+```
 
 ## 许可证
 
 内部项目 - 仅供 Funk & Love 使用
 
-## 建设者
+## 维护者
 
 Hofmann - Funk & Love
