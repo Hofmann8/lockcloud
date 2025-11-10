@@ -1,0 +1,54 @@
+# Python Backend
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/*.so
+backend/.Python
+backend/env/
+backend/venv/
+backend/ENV/
+backend/.venv
+backend/instance/
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/dist/
+backend/build/
+backend/*.egg-info/
+backend/.env
+
+# Frontend - Node.js & Next.js
+lockcloud-frontend/node_modules/
+lockcloud-frontend/.pnp
+lockcloud-frontend/.pnp.*
+lockcloud-frontend/.yarn/*
+!lockcloud-frontend/.yarn/patches
+!lockcloud-frontend/.yarn/plugins
+!lockcloud-frontend/.yarn/releases
+!lockcloud-frontend/.yarn/versions
+lockcloud-frontend/coverage/
+lockcloud-frontend/.next/
+lockcloud-frontend/out/
+lockcloud-frontend/build/
+lockcloud-frontend/.DS_Store
+lockcloud-frontend/*.pem
+lockcloud-frontend/npm-debug.log*
+lockcloud-frontend/yarn-debug.log*
+lockcloud-frontend/yarn-error.log*
+lockcloud-frontend/.pnpm-debug.log*
+lockcloud-frontend/.env*
+lockcloud-frontend/.vercel
+lockcloud-frontend/*.tsbuildinfo
+lockcloud-frontend/next-env.d.ts
+
+# IDE
+.vscode/
+.idea/
+.kiro/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Root level files
+req.txt

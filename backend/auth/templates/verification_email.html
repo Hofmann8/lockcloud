@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>邮箱验证码</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #1a1a1a;
+            font-size: 24px;
+            margin: 0;
+        }
+        .code-container {
+            background-color: #f8f9fa;
+            border: 2px dashed #ff8c42;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin: 30px 0;
+        }
+        .code {
+            font-size: 36px;
+            font-weight: bold;
+            color: #ff8c42;
+            letter-spacing: 8px;
+            font-family: 'Courier New', monospace;
+        }
+        .info {
+            color: #666;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            color: #999;
+            font-size: 12px;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border-left: 4px solid #ff8c42;
+            padding: 12px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔒 LockCloud 邮箱验证</h1>
+            <p>Funk & Love 云存储服务</p>
+        </div>
+        
+        <p>您好，</p>
+        <p>感谢您注册 LockCloud 云存储服务。请使用以下验证码完成注册：</p>
+        
+        <div class="code-container">
+            <div class="code">{{ code }}</div>
+        </div>
+        
+        <div class="warning">
+            ⚠️ 此验证码将在 <strong>10 分钟</strong>后失效，请尽快使用。
+        </div>
+        
+        <div class="info">
+            <p><strong>安全提示：</strong></p>
+            <ul>
+                <li>请勿将验证码分享给他人</li>
+                <li>如果您没有请求此验证码，请忽略此邮件</li>
+                <li>验证码仅可使用一次</li>
+            </ul>
+        </div>
+        
+        <div class="footer">
+            <p>此邮件由 LockCloud 系统自动发送，请勿回复</p>
+            <p>建设者：Hofmann | Funk & Love</p>
+            <p><a href="https://cloud.funk-and.love" style="color: #ff8c42; text-decoration: none;">cloud.funk-and.love</a></p>
+        </div>
+    </div>
+</body>
+</html>
