@@ -125,6 +125,34 @@ class FileAlreadyExistsError(FileError):
         super().__init__(message, code='FILE_005', status_code=400, details=details)
 
 
+class FileNameGenerationError(FileError):
+    """Failed to generate file name"""
+    
+    def __init__(self, message='文件名生成失败', details=None):
+        super().__init__(message, code='FILE_006', status_code=500, details=details)
+
+
+class InvalidActivityDateError(FileError):
+    """Activity date is invalid"""
+    
+    def __init__(self, message='活动日期无效', details=None):
+        super().__init__(message, code='FILE_007', status_code=400, details=details)
+
+
+class InvalidActivityTypeError(FileError):
+    """Activity type is invalid or not in preset list"""
+    
+    def __init__(self, message='活动类型无效', details=None):
+        super().__init__(message, code='FILE_008', status_code=400, details=details)
+
+
+class InvalidInstructorError(FileError):
+    """Instructor is invalid or not in preset list"""
+    
+    def __init__(self, message='带训老师标签无效', details=None):
+        super().__init__(message, code='FILE_009', status_code=400, details=details)
+
+
 class S3Error(LockCloudException):
     """S3 storage service errors"""
     
@@ -204,3 +232,31 @@ class RateLimitExceededError(LockCloudException):
     
     def __init__(self, message='请求过于频繁，请稍后再试', code='RATE_LIMIT', status_code=429, details=None):
         super().__init__(message, code, status_code, details)
+
+
+class TagError(LockCloudException):
+    """Tag preset errors"""
+    
+    def __init__(self, message, code='TAG_ERROR', status_code=400, details=None):
+        super().__init__(message, code, status_code, details)
+
+
+class TagPresetNotFoundError(TagError):
+    """Tag preset does not exist"""
+    
+    def __init__(self, message='标签预设不存在', details=None):
+        super().__init__(message, code='TAG_001', status_code=404, details=details)
+
+
+class TagPresetAlreadyExistsError(TagError):
+    """Tag preset already exists"""
+    
+    def __init__(self, message='标签预设已存在', details=None):
+        super().__init__(message, code='TAG_002', status_code=409, details=details)
+
+
+class TagPresetPermissionDeniedError(TagError):
+    """User does not have permission to manage tag presets"""
+    
+    def __init__(self, message='无权限管理标签预设', details=None):
+        super().__init__(message, code='TAG_003', status_code=403, details=details)

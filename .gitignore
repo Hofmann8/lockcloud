@@ -16,6 +16,10 @@ backend/dist/
 backend/build/
 backend/*.egg-info/
 backend/.env
+backend/logs/
+backend/instance/*.db
+backend/instance/*.sqlite
+backend/instance/*.sqlite3
 
 # Frontend - Node.js & Next.js
 lockcloud-frontend/node_modules/

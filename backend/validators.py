@@ -389,3 +389,220 @@ def sanitize_input(field_name):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def validate_activity_date(field_name='activity_date'):
+    """
+    Decorator to validate activity date format (ISO format: YYYY-MM-DD)
+    
+    Args:
+        field_name: Name of the activity date field in request data (default: 'activity_date')
+        
+    Usage:
+        @validate_activity_date()
+        def upload():
+            data = request.get_json()
+            # data['activity_date'] is guaranteed to be a valid ISO date
+    """
+    from datetime import datetime
+    from exceptions import InvalidActivityDateError
+    
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            data = request.get_json()
+            
+            if field_name not in data:
+                raise MissingFieldError(field_name)
+            
+            date_str = data[field_name]
+            
+            # Validate date is a string
+            if not isinstance(date_str, str):
+                raise InvalidActivityDateError('活动日期必须是字符串')
+            
+            # Validate ISO date format (YYYY-MM-DD)
+            try:
+                datetime.strptime(date_str.strip(), '%Y-%m-%d')
+            except ValueError:
+                raise InvalidActivityDateError(
+                    '活动日期格式无效，请使用 YYYY-MM-DD 格式',
+                    details={'provided': date_str, 'expected_format': 'YYYY-MM-DD'}
+                )
+            
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def validate_activity_type(field_name='activity_type'):
+    """
+    Decorator to validate activity type is in preset list
+    
+    Args:
+        field_name: Name of the activity type field in request data (default: 'activity_type')
+        
+    Usage:
+        @validate_activity_type()
+        def upload():
+            data = request.get_json()
+            # data['activity_type'] is guaranteed to be a valid preset
+    """
+    from exceptions import InvalidActivityTypeError
+    from services.tag_preset_service import TagPresetService
+    
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            data = request.get_json()
+            
+            if field_name not in data:
+                raise MissingFieldError(field_name)
+            
+            activity_type = data[field_name]
+            
+            # Validate activity type is a string
+            if not isinstance(activity_type, str):
+                raise InvalidActivityTypeError('活动类型必须是字符串')
+            
+            activity_type = activity_type.strip()
+            
+            if not activity_type:
+                raise InvalidActivityTypeError('活动类型不能为空')
+            
+            # Validate activity type is in preset list
+            presets = TagPresetService.get_active_presets('activity_type')
+            valid_values = [preset.value for preset in presets]
+            
+            if activity_type not in valid_values:
+                raise InvalidActivityTypeError(
+                    f'活动类型无效，请从预设列表中选择',
+                    details={
+                        'provided': activity_type,
+                        'valid_options': valid_values
+                    }
+                )
+            
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def validate_instructor(field_name='instructor'):
+    """
+    Decorator to validate instructor is in preset list
+    
+    Args:
+        field_name: Name of the instructor field in request data (default: 'instructor')
+        
+    Usage:
+        @validate_instructor()
+        def upload():
+            data = request.get_json()
+            # data['instructor'] is guaranteed to be a valid preset
+    """
+    from exceptions import InvalidInstructorError
+    from services.tag_preset_service import TagPresetService
+    
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            data = request.get_json()
+            
+            if field_name not in data:
+                raise MissingFieldError(field_name)
+            
+            instructor = data[field_name]
+            
+            # Validate instructor is a string
+            if not isinstance(instructor, str):
+                raise InvalidInstructorError('带训老师必须是字符串')
+            
+            instructor = instructor.strip()
+            
+            if not instructor:
+                raise InvalidInstructorError('带训老师不能为空')
+            
+            # Validate instructor is in preset list
+            presets = TagPresetService.get_active_presets('instructor')
+            valid_values = [preset.value for preset in presets]
+            
+            if instructor not in valid_values:
+                raise InvalidInstructorError(
+                    f'带训老师标签无效，请从预设列表中选择',
+                    details={
+                        'provided': instructor,
+                        'valid_options': valid_values
+                    }
+                )
+            
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def validate_file_extension(field_name='original_filename', allowed_extensions=None):
+    """
+    Decorator to validate file extension
+    
+    Args:
+        field_name: Name of the filename field in request data (default: 'original_filename')
+        allowed_extensions: List of allowed extensions (e.g., ['.jpg', '.png', '.pdf'])
+                           If None, all extensions are allowed
+        
+    Usage:
+        @validate_file_extension(allowed_extensions=['.jpg', '.png', '.pdf'])
+        def upload():
+            data = request.get_json()
+            # data['original_filename'] has a valid extension
+    """
+    import os
+    from exceptions import InvalidFieldError
+    
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            data = request.get_json()
+            
+            if field_name not in data:
+                raise MissingFieldError(field_name)
+            
+            filename = data[field_name]
+            
+            # Validate filename is a string
+            if not isinstance(filename, str):
+                raise InvalidFieldError(field_name, '文件名必须是字符串')
+            
+            filename = filename.strip()
+            
+            if not filename:
+                raise InvalidFieldError(field_name, '文件名不能为空')
+            
+            # Extract extension
+            _, ext = os.path.splitext(filename)
+            ext = ext.lower()
+            
+            # Validate extension exists
+            if not ext:
+                raise InvalidFieldError(
+                    field_name,
+                    '文件必须包含扩展名',
+                    details={'filename': filename}
+                )
+            
+            # Validate against allowed extensions if specified
+            if allowed_extensions is not None:
+                allowed_extensions_lower = [e.lower() for e in allowed_extensions]
+                if ext not in allowed_extensions_lower:
+                    raise InvalidFieldError(
+                        field_name,
+                        f'不支持的文件类型',
+                        details={
+                            'provided_extension': ext,
+                            'allowed_extensions': allowed_extensions
+                        }
+                    )
+            
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator

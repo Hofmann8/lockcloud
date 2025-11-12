@@ -20,16 +20,17 @@ export function Navbar() {
   };
 
   const isActive = (path: string) => {
-    if (path === '/admin/logs') {
+    if (path === '/admin') {
       return pathname?.startsWith('/admin');
     }
     return pathname === path;
   };
 
+  // Only show admin link for admin users
   const navLinks = [
     { href: '/files', label: '文件' },
     { href: '/upload', label: '上传' },
-    { href: '/admin/logs', label: '管理' },
+    ...(user?.is_admin ? [{ href: '/admin', label: '管理' }] : []),
   ];
 
   return (

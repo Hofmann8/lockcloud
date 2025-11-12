@@ -8,7 +8,7 @@ import { useState } from 'react';
  * Providers component that wraps the app with necessary context providers
  */
 export function Providers({ children }: { children: React.ReactNode }) {
-  // Create QueryClient instance with default options
+  // Create QueryClient instance with optimized default options
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -16,12 +16,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
           queries: {
             // Data is considered fresh for 5 minutes
             staleTime: 5 * 60 * 1000,
-            // Cache data for 10 minutes
+            // Cache data for 10 minutes (gcTime replaces cacheTime in v5)
             gcTime: 10 * 60 * 1000,
             // Retry failed requests once
             retry: 1,
             // Don't refetch on window focus by default
             refetchOnWindowFocus: false,
+            // Don't refetch on reconnect for better performance
+            refetchOnReconnect: false,
+            // Don't refetch on mount if data is fresh
+            refetchOnMount: false,
           },
           mutations: {
             // Retry failed mutations once

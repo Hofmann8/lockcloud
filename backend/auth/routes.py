@@ -118,6 +118,16 @@ def register():
                 }), 400
         
         email = data['email'].strip().lower()
+        
+        # Check if email is blacklisted
+        from admin.models import EmailBlacklist
+        if EmailBlacklist.is_blacklisted(email):
+            return jsonify({
+                'error': {
+                    'code': 'AUTH_007',
+                    'message': '该邮箱已被禁止注册'
+                }
+            }), 403
         password = data['password']
         name = data['name'].strip()
         code = data['code'].strip()
@@ -242,6 +252,16 @@ def login():
         
         email = data['email'].strip().lower()
         password = data['password']
+        
+        # Check if email is blacklisted
+        from admin.models import EmailBlacklist
+        if EmailBlacklist.is_blacklisted(email):
+            return jsonify({
+                'error': {
+                    'code': 'AUTH_007',
+                    'message': '该邮箱已被禁止登录'
+                }
+            }), 403
         
         # Find user by email
         user = User.query.filter_by(email=email).first()

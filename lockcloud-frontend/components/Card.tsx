@@ -1,6 +1,6 @@
 import React from 'react';
 
-interface CardProps {
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
   className?: string;
   variant?: 'default' | 'bordered' | 'elevated';
@@ -15,7 +15,8 @@ export function Card({
   variant = 'default',
   padding = 'md',
   hoverable = false, 
-  onClick 
+  onClick,
+  ...htmlProps
 }: CardProps) {
   // Base functional card styles
   const baseStyles = 'card-functional bg-primary-white';
@@ -39,6 +40,7 @@ export function Card({
     <div
       className={`${baseStyles} ${variantStyles} ${paddingStyles} ${interactionStyles} ${className}`}
       onClick={onClick}
+      {...htmlProps}
     >
       {children}
     </div>

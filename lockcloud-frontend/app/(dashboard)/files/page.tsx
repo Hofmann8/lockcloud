@@ -1,11 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { listFiles } from '@/lib/api/files';
 import { FileFilters } from '@/types';
 import { FileGrid } from '@/components/FileGrid';
-import { FileFilters as FileFiltersComponent } from '@/components/FileFilters';
+import { UnifiedSearch } from '@/components/UnifiedSearch';
 import { FileGridSkeleton } from '@/components/SkeletonLoader';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
@@ -13,22 +13,57 @@ import { ErrorCard } from '@/components/ErrorCard';
 import { zhCN } from '@/locales/zh-CN';
 
 export default function FilesPage() {
-  const [filters, setFilters] = useState<FileFilters>({
-    page: 1,
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  
+  // Derive filters directly from URL parameters (no state needed)
+  const filters: FileFilters = {
+    page: parseInt(searchParams.get('page') || '1', 10),
     per_page: 50,
-  });
+    ...(searchParams.get('directory') && { directory: searchParams.get('directory')! }),
+    ...(searchParams.get('activity_type') && { activity_type: searchParams.get('activity_type')! }),
+    ...(searchParams.get('instructor') && { instructor: searchParams.get('instructor')! }),
+    ...(searchParams.get('date_from') && { date_from: searchParams.get('date_from')! }),
+    ...(searchParams.get('date_to') && { date_to: searchParams.get('date_to')! }),
+    ...(searchParams.get('search') && { search: searchParams.get('search')! }),
+  };
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['files', filters],
     queryFn: () => listFiles(filters),
   });
 
   const handleFilterChange = (newFilters: Partial<FileFilters>) => {
-    setFilters((prev) => ({ ...prev, ...newFilters, page: 1 }));
+    const params = new URLSearchParams(searchParams.toString());
+    
+    // Update or remove parameters
+    Object.entries(newFilters).forEach(([key, value]) => {
+      if (value) {
+        params.set(key, String(value));
+      } else {
+        params.delete(key);
+      }
+    });
+    
+    // Reset to page 1 when filters change
+    params.set('page', '1');
+    
+    // Update URL using Next.js router
+    router.push(`/files?${params.toString()}`);
   };
 
   const handlePageChange = (page: number) => {
-    setFilters((prev) => ({ ...prev, page }));
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('page', String(page));
+    router.push(`/files?${params.toString()}`);
+  };
+
+  const handleFileUpdate = () => {
+    // Refetch file list
+    refetch();
+    // Also invalidate directory tree to update file counts
+    queryClient.invalidateQueries({ queryKey: ['directories'] });
   };
 
   return (
@@ -39,8 +74,8 @@ export default function FilesPage() {
         </h1>
       </div>
 
-      {/* Filters */}
-      <FileFiltersComponent filters={filters} onFilterChange={handleFilterChange} />
+      {/* Unified Search */}
+      <UnifiedSearch filters={filters} onFilterChange={handleFilterChange} />
 
       {/* Loading State with Skeleton */}
       {isLoading && <FileGridSkeleton count={6} />}
@@ -70,25 +105,25 @@ export default function FilesPage() {
       {/* File Grid */}
       {!isLoading && !error && data && data.files.length > 0 && (
         <>
-          <FileGrid files={data.files} />
+          <FileGrid files={data.files} onFileUpdate={handleFileUpdate} />
           
           {/* Pagination */}
-          {data.total > data.per_page && (
+          {data.pagination.total > data.pagination.per_page && (
             <div className="flex justify-center items-center gap-3 md:gap-4 mt-6 md:mt-8">
               <Button
                 variant="secondary"
-                onClick={() => handlePageChange(data.page - 1)}
-                disabled={data.page === 1}
+                onClick={() => handlePageChange(data.pagination.page - 1)}
+                disabled={!data.pagination.has_prev}
               >
                 {zhCN.common.previous}
               </Button>
               <span className="text-sm md:text-base text-primary-black font-medium">
-                {data.page} / {Math.ceil(data.total / data.per_page)}
+                {data.pagination.page} / {data.pagination.pages}
               </span>
               <Button
                 variant="secondary"
-                onClick={() => handlePageChange(data.page + 1)}
-                disabled={data.page >= Math.ceil(data.total / data.per_page)}
+                onClick={() => handlePageChange(data.pagination.page + 1)}
+                disabled={!data.pagination.has_next}
               >
                 {zhCN.common.next}
               </Button>

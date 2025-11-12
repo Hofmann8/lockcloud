@@ -25,15 +25,17 @@ files_bp = Blueprint('files', __name__)
 @jwt_required()
 def get_upload_url():
     """
-    Generate signed URL for file upload
+    Generate signed URL for file upload with automatic naming
     
     POST /api/files/upload-url
     Headers: Authorization: Bearer <token>
     Body: {
-        "filename": "2025-03-session_alex_01.jpg",
-        "directory": "/rehearsals/2025-03-session/",
+        "original_filename": "IMG_1234.jpg",
         "content_type": "image/jpeg",
-        "size": 1024000
+        "size": 1024000,
+        "activity_date": "2025-03-15",
+        "activity_type": "regular_training",
+        "instructor": "alex"
     }
     
     Returns:
@@ -50,7 +52,7 @@ def get_upload_url():
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['filename', 'directory', 'content_type', 'size']
+        required_fields = ['original_filename', 'content_type', 'size', 'activity_date', 'activity_type', 'instructor']
         for field in required_fields:
             if not data or field not in data:
                 return jsonify({
@@ -60,33 +62,66 @@ def get_upload_url():
                     }
                 }), 400
         
-        filename = data['filename'].strip()
-        directory = data['directory'].strip()
+        original_filename = data['original_filename'].strip()
         content_type = data['content_type'].strip()
         size = data['size']
+        activity_date_str = data['activity_date'].strip()
+        activity_type = data['activity_type'].strip()
+        instructor = data['instructor'].strip()
+        custom_filename = data.get('custom_filename', '').strip() if data.get('custom_filename') else None
         
-        # Validate file naming convention
-        naming_validation = validate_file_naming_convention(filename)
-        if not naming_validation['valid']:
+        # Validate activity date format
+        try:
+            from datetime import datetime
+            activity_date = datetime.fromisoformat(activity_date_str).date()
+        except ValueError:
             return jsonify({
                 'error': {
-                    'code': 'FILE_003',
-                    'message': naming_validation['message']
+                    'code': 'FILE_007',
+                    'message': '活动日期格式无效，请使用 ISO 格式 (YYYY-MM-DD)'
                 }
             }), 400
         
-        # Validate directory path
-        directory_validation = validate_directory_path(directory)
-        if not directory_validation['valid']:
+        # Validate tag presets
+        from services.tag_preset_service import tag_preset_service
+        
+        # Validate activity_type
+        activity_type_presets = tag_preset_service.get_active_presets('activity_type')
+        valid_activity_types = [preset.value for preset in activity_type_presets]
+        if activity_type not in valid_activity_types:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_008',
+                    'message': f'活动类型无效。有效选项: {", ".join(valid_activity_types)}'
+                }
+            }), 400
+        
+        # Validate instructor
+        instructor_presets = tag_preset_service.get_active_presets('instructor')
+        valid_instructors = [preset.value for preset in instructor_presets]
+        if instructor not in valid_instructors:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_009',
+                    'message': f'带训老师标签无效。有效选项: {", ".join(valid_instructors)}'
+                }
+            }), 400
+        
+        # Extract and validate file extension
+        from services.file_naming_service import file_naming_service
+        import re
+        
+        try:
+            file_extension = file_naming_service.extract_extension(original_filename)
+        except ValueError as e:
             return jsonify({
                 'error': {
                     'code': 'VALIDATION_001',
-                    'message': directory_validation['message']
+                    'message': str(e)
                 }
             }), 400
         
-        # Validate file extension
-        extension_validation = validate_file_extension(filename)
+        extension_validation = validate_file_extension(original_filename)
         if not extension_validation['valid']:
             return jsonify({
                 'error': {
@@ -95,40 +130,89 @@ def get_upload_url():
                 }
             }), 400
         
-        # Validate file size (max 500MB)
-        max_size = 500 * 1024 * 1024  # 500MB in bytes
+        # Validate custom filename if provided
+        if custom_filename:
+            # Check for invalid characters
+            if re.search(r'[<>:"/\\|?*\x00-\x1f]', custom_filename):
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': '自定义文件名包含非法字符'
+                    }
+                }), 400
+            
+            # Check length
+            if len(custom_filename) > 200:
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': '自定义文件名过长（最多200字符）'
+                    }
+                }), 400
+        
+        # Validate file size (max 2GB)
+        max_size = 2 * 1024 * 1024 * 1024  # 2GB in bytes
         if size > max_size:
             return jsonify({
                 'error': {
                     'code': 'VALIDATION_001',
-                    'message': f'文件大小超过限制 (最大 500MB)'
+                    'message': f'文件大小超过限制 (最大 2GB)'
                 }
             }), 400
         
-        # Construct S3 key (path in bucket)
-        # Format: directory/filename
-        directory_normalized = directory.strip('/')
-        s3_key = f"{directory_normalized}/{filename}"
+        # Generate filename: use custom name if provided, otherwise use original filename
+        if custom_filename:
+            generated_filename = f"{custom_filename}{file_extension}"
+        else:
+            # Use original filename (without path, just the name)
+            generated_filename = original_filename.split('/')[-1].split('\\')[-1]
         
-        # Check if file already exists
-        existing_file = File.query.filter_by(s3_key=s3_key).first()
+        # Construct directory path based on tags: /{activity_type}/{year}/{month}/
+        year = activity_date.year
+        month = f"{activity_date.month:02d}"  # Zero-padded month (01-12)
+        directory_path = f"{activity_type}/{year}/{month}"
+        
+        # Construct S3 key (path in bucket)
+        s3_key = f"{directory_path}/{generated_filename}"
+        
+        # Check if file already exists in the same directory (same activity_type, year, month, and filename)
+        existing_file = File.query.filter_by(
+            activity_type=activity_type
+        ).filter(
+            db.func.extract('year', File.activity_date) == year,
+            db.func.extract('month', File.activity_date) == activity_date.month,
+            File.filename == generated_filename
+        ).first()
+        
         if existing_file:
             return jsonify({
                 'error': {
                     'code': 'FILE_005',
-                    'message': '文件已存在，请使用不同的文件名'
+                    'message': f'该目录下已存在同名文件: {generated_filename}'
                 }
             }), 400
         
-        # Generate signed upload URL (1-hour expiration)
+        # Get uploader information
+        from auth.models import User
+        uploader = User.query.get(current_user_id)
+        uploader_name = uploader.name if uploader else str(current_user_id)
+        
+        # Build S3 tags dictionary
+        s3_tags = {
+            'activity_date': activity_date_str,
+            'activity_type': activity_type,
+            'instructor': instructor,
+            'uploader_name': uploader_name,
+            'upload_timestamp': datetime.utcnow().isoformat() + 'Z',
+            'original_filename': original_filename
+        }
+        
+        # Generate signed upload URL without tags (simpler, more reliable)
+        # Tags will be applied after upload confirmation
         try:
             upload_url = s3_service.generate_presigned_upload_url(
                 key=s3_key,
                 content_type=content_type,
-                metadata={
-                    'uploader_id': str(current_user_id),
-                    'original_filename': filename
-                },
                 expiration=3600  # 1 hour
             )
         except Exception as e:
@@ -141,14 +225,17 @@ def get_upload_url():
             }), 500
         
         current_app.logger.info(
-            f'Generated upload URL for user {current_user_id}: {s3_key}'
+            f'Generated upload URL for user {current_user_id}: {s3_key} (activity: {activity_date_str})'
         )
         
         return jsonify({
             'success': True,
             'upload_url': upload_url,
             's3_key': s3_key,
-            'expires_in': 3600
+            'generated_filename': generated_filename,
+            'expires_in': 3600,
+            's3_tags': s3_tags,  # Return tags for confirmation step
+            'uploader_name': uploader_name
         }), 200
         
     except Exception as e:
@@ -170,11 +257,13 @@ def confirm_upload():
     POST /api/files/confirm
     Headers: Authorization: Bearer <token>
     Body: {
-        "filename": "2025-03-session_alex_01.jpg",
-        "directory": "/rehearsals/2025-03-session/",
-        "s3_key": "rehearsals/2025-03-session/2025-03-session_alex_01.jpg",
+        "s3_key": "regular_training/alex/2025/2025-03-15_001.jpg",
         "size": 1024000,
-        "content_type": "image/jpeg"
+        "content_type": "image/jpeg",
+        "original_filename": "IMG_1234.jpg",
+        "activity_date": "2025-03-15",
+        "activity_type": "regular_training",
+        "instructor": "alex"
     }
     
     Returns:
@@ -191,7 +280,8 @@ def confirm_upload():
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['filename', 'directory', 's3_key', 'size', 'content_type']
+        required_fields = ['s3_key', 'size', 'content_type', 'original_filename', 
+                          'activity_date', 'activity_type', 'instructor']
         for field in required_fields:
             if not data or field not in data:
                 return jsonify({
@@ -201,11 +291,28 @@ def confirm_upload():
                     }
                 }), 400
         
-        filename = data['filename'].strip()
-        directory = data['directory'].strip()
         s3_key = data['s3_key'].strip()
         size = data['size']
         content_type = data['content_type'].strip()
+        original_filename = data['original_filename'].strip()
+        activity_date_str = data['activity_date'].strip()
+        activity_type = data['activity_type'].strip()
+        instructor = data['instructor'].strip()
+        
+        # Parse activity date
+        try:
+            from datetime import datetime
+            activity_date = datetime.fromisoformat(activity_date_str).date()
+        except ValueError:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_007',
+                    'message': '活动日期格式无效'
+                }
+            }), 400
+        
+        # Extract generated filename from s3_key
+        filename = s3_key.split('/')[-1]
         
         # Check if file already exists in database
         existing_file = File.query.filter_by(s3_key=s3_key).first()
@@ -217,21 +324,49 @@ def confirm_upload():
                 }
             }), 400
         
+        # Apply tags to the uploaded file
+        from auth.models import User
+        uploader = User.query.get(current_user_id)
+        uploader_name = uploader.name if uploader else str(current_user_id)
+        
+        s3_tags = {
+            'activity_date': activity_date_str,
+            'activity_type': activity_type,
+            'instructor': instructor,
+            'uploader_name': uploader_name,
+            'upload_timestamp': datetime.utcnow().isoformat() + 'Z',
+            'original_filename': original_filename
+        }
+        
+        try:
+            s3_service.update_object_tags(s3_key, s3_tags)
+        except Exception as e:
+            current_app.logger.warning(f'Failed to apply tags to {s3_key}: {str(e)}')
+            # Don't fail the upload if tagging fails
+        
         # Generate public URL
         bucket = s3_service.get_bucket_name()
         endpoint = current_app.config.get('S3_ENDPOINT', 'https://s3.bitiful.net')
         public_url = f"{endpoint}/{bucket}/{s3_key}"
         
-        # Create file record
+        # Extract directory from s3_key (everything except the filename)
+        directory_from_key = '/'.join(s3_key.split('/')[:-1])
+        
+        # Create file record with new fields
         file = File(
             filename=filename,
-            directory=directory.strip('/'),
+            directory=directory_from_key,
             s3_key=s3_key,
             size=size,
             content_type=content_type,
             uploader_id=current_user_id,
             uploaded_at=datetime.utcnow(),
-            public_url=public_url
+            public_url=public_url,
+            original_filename=original_filename,
+            activity_date=activity_date,
+            activity_type=activity_type,
+            instructor=instructor,
+            is_legacy=False  # Mark as new system file
         )
         
         db.session.add(file)
@@ -251,13 +386,33 @@ def confirm_upload():
         db.session.commit()
         
         current_app.logger.info(
-            f'File uploaded by user {current_user_id}: {s3_key}'
+            f'File uploaded by user {current_user_id}: {s3_key} (activity: {activity_date_str}, type: {activity_type})'
         )
+        
+        # Get tag preset display names for response
+        from services.tag_preset_service import tag_preset_service
+        
+        activity_type_preset = next(
+            (p for p in tag_preset_service.get_active_presets('activity_type') if p.value == activity_type),
+            None
+        )
+        activity_type_display = activity_type_preset.display_name if activity_type_preset else activity_type
+        
+        instructor_preset = next(
+            (p for p in tag_preset_service.get_active_presets('instructor') if p.value == instructor),
+            None
+        )
+        instructor_display = instructor_preset.display_name if instructor_preset else instructor
+        
+        # Build response with display names
+        file_dict = file.to_dict(include_uploader=True)
+        file_dict['activity_type_display'] = activity_type_display
+        file_dict['instructor_display'] = instructor_display
         
         return jsonify({
             'success': True,
             'message': '文件上传成功',
-            'file': file.to_dict(include_uploader=True)
+            'file': file_dict
         }), 201
         
     except Exception as e:
@@ -278,13 +433,16 @@ def list_files():
     """
     List files with optional filters and pagination
     
-    GET /api/files?directory=/rehearsals/2025-03-session/&uploader_id=1&page=1&per_page=50
+    GET /api/files?directory=/rehearsals/2025-03-session/&uploader_id=1&activity_type=regular_training&instructor=alex&date_from=2025-03-01&date_to=2025-03-31&search=training&page=1&per_page=50
     Headers: Authorization: Bearer <token>
     Query Parameters:
         - directory: Filter by directory path (optional)
         - uploader_id: Filter by uploader user ID (optional)
-        - date_from: Filter by upload date from (ISO format, optional)
-        - date_to: Filter by upload date to (ISO format, optional)
+        - activity_type: Filter by activity type (optional)
+        - instructor: Filter by instructor (optional)
+        - date_from: Filter by activity date from (ISO format, optional)
+        - date_to: Filter by activity date to (ISO format, optional)
+        - search: Search across filename, original_filename, and tags (optional)
         - page: Page number (default: 1)
         - per_page: Items per page (default: 50, max: 100)
     
@@ -301,8 +459,11 @@ def list_files():
         # Get query parameters
         directory = request.args.get('directory', '').strip()
         uploader_id = request.args.get('uploader_id', type=int)
+        activity_type = request.args.get('activity_type', '').strip()
+        instructor = request.args.get('instructor', '').strip()
         date_from = request.args.get('date_from', '').strip()
         date_to = request.args.get('date_to', '').strip()
+        search = request.args.get('search', '').strip()
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
         
@@ -319,37 +480,59 @@ def list_files():
         if directory:
             # Normalize directory path
             directory_normalized = directory.strip('/')
-            query = query.filter(File.directory == directory_normalized)
+            # Use prefix matching to include all subdirectories
+            query = query.filter(File.directory.startswith(directory_normalized))
         
         if uploader_id:
             query = query.filter(File.uploader_id == uploader_id)
         
+        # Filter by activity_type
+        if activity_type:
+            query = query.filter(File.activity_type == activity_type)
+        
+        # Filter by instructor
+        if instructor:
+            query = query.filter(File.instructor == instructor)
+        
+        # Search filter - searches across filename, original_filename, and tags
+        if search:
+            search_pattern = f'%{search}%'
+            query = query.filter(
+                or_(
+                    File.filename.ilike(search_pattern),
+                    File.original_filename.ilike(search_pattern),
+                    File.activity_type.ilike(search_pattern),
+                    File.instructor.ilike(search_pattern)
+                )
+            )
+        
+        # Filter by activity date range (changed from uploaded_at to activity_date)
         if date_from:
             try:
-                date_from_dt = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
-                query = query.filter(File.uploaded_at >= date_from_dt)
+                date_from_obj = datetime.fromisoformat(date_from).date()
+                query = query.filter(File.activity_date >= date_from_obj)
             except ValueError:
                 return jsonify({
                     'error': {
                         'code': 'VALIDATION_001',
-                        'message': '日期格式无效 (date_from)。请使用 ISO 格式'
+                        'message': '日期格式无效 (date_from)。请使用 ISO 格式 (YYYY-MM-DD)'
                     }
                 }), 400
         
         if date_to:
             try:
-                date_to_dt = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
-                query = query.filter(File.uploaded_at <= date_to_dt)
+                date_to_obj = datetime.fromisoformat(date_to).date()
+                query = query.filter(File.activity_date <= date_to_obj)
             except ValueError:
                 return jsonify({
                     'error': {
                         'code': 'VALIDATION_001',
-                        'message': '日期格式无效 (date_to)。请使用 ISO 格式'
+                        'message': '日期格式无效 (date_to)。请使用 ISO 格式 (YYYY-MM-DD)'
                     }
                 }), 400
         
-        # Order by upload date (newest first)
-        query = query.order_by(File.uploaded_at.desc())
+        # Order by activity date (newest first), fallback to upload date
+        query = query.order_by(File.activity_date.desc().nullslast(), File.uploaded_at.desc())
         
         # Paginate results
         pagination = query.paginate(
@@ -358,8 +541,25 @@ def list_files():
             error_out=False
         )
         
-        # Convert files to dictionaries
-        files = [file.to_dict(include_uploader=True) for file in pagination.items]
+        # Convert files to dictionaries with tag display names
+        from services.tag_preset_service import tag_preset_service
+        
+        # Get all active presets for display name mapping
+        activity_type_presets = {p.value: p.display_name for p in tag_preset_service.get_active_presets('activity_type')}
+        instructor_presets = {p.value: p.display_name for p in tag_preset_service.get_active_presets('instructor')}
+        
+        files = []
+        for file in pagination.items:
+            file_dict = file.to_dict(include_uploader=True)
+            
+            # Add display names for tags
+            if file.activity_type:
+                file_dict['activity_type_display'] = activity_type_presets.get(file.activity_type, file.activity_type)
+            
+            if file.instructor:
+                file_dict['instructor_display'] = instructor_presets.get(file.instructor, file.instructor)
+            
+            files.append(file_dict)
         
         current_app.logger.info(
             f'User {current_user_id} listed {len(files)} files (page {page})'
@@ -418,13 +618,33 @@ def get_file(file_id):
                 }
             }), 404
         
+        # Get file dictionary with uploader info
+        file_dict = file.to_dict(include_uploader=True)
+        
+        # Add tag display names if tags exist
+        from services.tag_preset_service import tag_preset_service
+        
+        if file.activity_type:
+            activity_type_preset = next(
+                (p for p in tag_preset_service.get_active_presets('activity_type') if p.value == file.activity_type),
+                None
+            )
+            file_dict['activity_type_display'] = activity_type_preset.display_name if activity_type_preset else file.activity_type
+        
+        if file.instructor:
+            instructor_preset = next(
+                (p for p in tag_preset_service.get_active_presets('instructor') if p.value == file.instructor),
+                None
+            )
+            file_dict['instructor_display'] = instructor_preset.display_name if instructor_preset else file.instructor
+        
         current_app.logger.info(
             f'User {current_user_id} retrieved file {file_id}'
         )
         
         return jsonify({
             'success': True,
-            'file': file.to_dict(include_uploader=True)
+            'file': file_dict
         }), 200
         
     except Exception as e:
@@ -529,13 +749,14 @@ def delete_file(file_id):
 @jwt_required()
 def get_directories():
     """
-    Get hierarchical directory structure with file counts
+    Get hierarchical directory structure with file counts based on tag presets
+    Structure: {activity_type}/{year}/{month}
     
     GET /api/files/directories
     Headers: Authorization: Bearer <token>
     
     Returns:
-        200: Directory structure retrieved successfully
+        200: Directory structure retrieved successfully with display names from tag presets
         401: Unauthorized
         500: Query failed
     """
@@ -543,72 +764,107 @@ def get_directories():
         # Get current user ID from JWT (for authentication)
         current_user_id = int(get_jwt_identity())
         
-        # Query all unique directories with file counts
-        from sqlalchemy import func
+        # Get tag presets for display name mapping
+        from services.tag_preset_service import tag_preset_service
         
-        directory_counts = db.session.query(
-            File.directory,
+        activity_type_presets = {p.value: p.display_name for p in tag_preset_service.get_active_presets('activity_type')}
+        
+        # Query files grouped by activity_type, year, and month
+        from sqlalchemy import func, extract
+        
+        # Get file counts grouped by activity_type, year, and month
+        file_stats = db.session.query(
+            File.activity_type,
+            extract('year', File.activity_date).label('year'),
+            extract('month', File.activity_date).label('month'),
             func.count(File.id).label('file_count')
-        ).group_by(File.directory).all()
+        ).filter(
+            File.activity_type.isnot(None),
+            File.activity_date.isnot(None)
+        ).group_by(
+            File.activity_type,
+            extract('year', File.activity_date),
+            extract('month', File.activity_date)
+        ).all()
         
         # Build hierarchical structure
-        directory_tree = {
-            'rehearsals': {'count': 0, 'subdirs': {}},
-            'events': {'count': 0, 'subdirs': {}},
-            'members': {'count': 0, 'subdirs': {}},
-            'resources': {'count': 0, 'subdirs': {}},
-            'admin': {'count': 0, 'subdirs': {}}
-        }
+        directory_tree = {}
         
-        for directory, count in directory_counts:
-            parts = directory.split('/')
+        for activity_type, year, month, count in file_stats:
+            # Initialize activity type if not exists
+            if activity_type not in directory_tree:
+                directory_tree[activity_type] = {
+                    'value': activity_type,
+                    'display_name': activity_type_presets.get(activity_type, activity_type),
+                    'count': 0,
+                    'years': {}
+                }
             
-            if len(parts) == 0:
-                continue
+            directory_tree[activity_type]['count'] += count
             
-            root = parts[0]
+            # Initialize year if not exists
+            year_str = str(int(year)) if year else 'unknown'
+            if year_str not in directory_tree[activity_type]['years']:
+                directory_tree[activity_type]['years'][year_str] = {
+                    'value': year_str,
+                    'count': 0,
+                    'months': {}
+                }
             
-            if root not in directory_tree:
-                continue
+            directory_tree[activity_type]['years'][year_str]['count'] += count
             
-            if len(parts) == 1:
-                # Root level directory
-                directory_tree[root]['count'] += count
-            else:
-                # Subdirectory
-                subdir = '/'.join(parts[1:])
-                if subdir not in directory_tree[root]['subdirs']:
-                    directory_tree[root]['subdirs'][subdir] = 0
-                directory_tree[root]['subdirs'][subdir] += count
-                directory_tree[root]['count'] += count
+            # Add month data
+            month_str = f"{int(month):02d}" if month else 'unknown'
+            month_name = f"{int(month)}月" if month else 'unknown'
+            if month_str not in directory_tree[activity_type]['years'][year_str]['months']:
+                directory_tree[activity_type]['years'][year_str]['months'][month_str] = 0
+            
+            directory_tree[activity_type]['years'][year_str]['months'][month_str] += count
         
-        # Convert to list format for easier frontend consumption
+        # Convert to list format for frontend
         directories = []
-        for root, data in directory_tree.items():
-            dir_obj = {
-                'name': root,
-                'path': f'/{root}/',
-                'file_count': data['count'],
+        
+        for activity_type, activity_data in directory_tree.items():
+            activity_obj = {
+                'value': activity_data['value'],
+                'name': activity_data['display_name'],
+                'path': f'{activity_type}',
+                'file_count': activity_data['count'],
                 'subdirectories': []
             }
             
-            for subdir, subcount in data['subdirs'].items():
-                dir_obj['subdirectories'].append({
-                    'name': subdir,
-                    'path': f'/{root}/{subdir}/',
-                    'file_count': subcount
-                })
+            for year, year_data in activity_data['years'].items():
+                year_obj = {
+                    'value': year,
+                    'name': f'{year}年',
+                    'path': f'{activity_type}/{year}',
+                    'file_count': year_data['count'],
+                    'subdirectories': []
+                }
+                
+                for month_str, month_count in year_data['months'].items():
+                    month_int = int(month_str)
+                    year_obj['subdirectories'].append({
+                        'name': f'{month_int}月',
+                        'path': f'{activity_type}/{year}/{month_str}',
+                        'file_count': month_count
+                    })
+                
+                # Sort months in descending order (newest first)
+                year_obj['subdirectories'].sort(key=lambda x: int(x['name'].replace('月', '')), reverse=True)
+                
+                activity_obj['subdirectories'].append(year_obj)
             
-            # Sort subdirectories by name
-            dir_obj['subdirectories'].sort(key=lambda x: x['name'])
+            # Sort years in descending order (newest first)
+            activity_obj['subdirectories'].sort(key=lambda x: x['value'], reverse=True)
             
-            directories.append(dir_obj)
+            directories.append(activity_obj)
         
-        # Sort root directories by name
+        # Sort activity types by display name
         directories.sort(key=lambda x: x['name'])
         
         current_app.logger.info(
-            f'User {current_user_id} retrieved directory structure'
+            f'User {current_user_id} retrieved directory structure with {len(directories)} activity types'
         )
         
         return jsonify({

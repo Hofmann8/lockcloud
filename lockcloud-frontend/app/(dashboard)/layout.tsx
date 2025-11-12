@@ -73,13 +73,13 @@ export default function DashboardLayout({
   return (
     <>
       {/* Main content - renders immediately in background */}
-      <div ref={contentRef} className="min-h-screen flex flex-col bg-white">
+      <div ref={contentRef} className="h-screen flex flex-col bg-white overflow-hidden">
         <Navbar />
         
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
           
-          <main className="flex-1 overflow-y-auto bg-gray-50">
+          <main className="flex-1 overflow-y-auto bg-gray-50 custom-scrollbar">
             <div className="max-w-[1400px] mx-auto px-4 sm:px-6 md:px-8 lg:px-12 py-4 sm:py-6 md:py-8">
               {children}
             </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 
-interface ErrorCardProps {
+interface ErrorCardProps extends React.HTMLAttributes<HTMLDivElement> {
   title?: string;
   message: string;
   action?: {
@@ -14,7 +14,8 @@ export function ErrorCard({
   title, 
   message, 
   action,
-  variant = 'error' 
+  variant = 'error',
+  ...htmlProps
 }: ErrorCardProps) {
   const colors = {
     error: {
@@ -58,9 +59,9 @@ export function ErrorCard({
   };
 
   return (
-    <div className={`${style.bg} border ${style.border} rounded-lg p-4 md:p-6`}>
+    <div className={`${style.bg} border ${style.border} rounded-lg p-4 md:p-6`} {...htmlProps}>
       <div className="flex items-start gap-3 md:gap-4">
-        <div className={`${style.icon} shrink-0 mt-0.5`}>
+        <div className={`${style.icon} shrink-0 mt-0.5`} aria-hidden="true">
           {icons[variant]}
         </div>
         <div className="flex-1 min-w-0">
@@ -75,7 +76,8 @@ export function ErrorCard({
           {action && (
             <button
               onClick={action.onClick}
-              className={`mt-3 text-sm md:text-sm font-medium ${style.text} hover:underline focus:outline-none focus:underline`}
+              className={`mt-3 text-sm md:text-sm font-medium ${style.text} hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-current rounded`}
+              aria-label={action.label}
             >
               {action.label}
             </button>

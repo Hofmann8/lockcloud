@@ -105,7 +105,7 @@ def create_app(config_name=None):
     # Import models to register them with SQLAlchemy
     with app.app_context():
         from auth.models import User, VerificationCode
-        from files.models import File
+        from files.models import File, TagPreset
         from logs.models import FileLog
     
     # Register error handlers
@@ -115,9 +115,13 @@ def create_app(config_name=None):
     from auth.routes import auth_bp
     from files.routes import files_bp
     from logs.routes import logs_bp
+    from tag_presets.routes import tag_presets_bp
+    from admin.routes import admin_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(files_bp, url_prefix='/api/files')
     app.register_blueprint(logs_bp, url_prefix='/api/logs')
+    app.register_blueprint(tag_presets_bp, url_prefix='/api/tag-presets')
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
     
     # Health check endpoint
     @app.route('/')

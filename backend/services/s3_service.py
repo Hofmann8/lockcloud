@@ -112,6 +112,128 @@ class S3Service:
             current_app.logger.error(f'Failed to generate presigned upload URL: {str(e)}')
             raise
     
+    def generate_presigned_upload_url_with_tags(
+        self,
+        key: str,
+        content_type: str,
+        tags: Dict[str, str],
+        expiration: int = 3600
+    ) -> str:
+        """
+        Generate a presigned URL for uploading a file to S3 with tags
+        
+        Args:
+            key: S3 object key (file path in bucket)
+            content_type: MIME type of the file (e.g., 'image/jpeg')
+            tags: Dictionary of tags to apply to the object
+            expiration: URL expiration time in seconds (default: 3600 = 1 hour)
+        
+        Returns:
+            Presigned URL string for PUT operation with tagging
+        
+        Raises:
+            ClientError: If URL generation fails
+        """
+        from urllib.parse import quote
+        
+        bucket = self.get_bucket_name()
+        
+        # Convert tags dictionary to S3 tagging format (URL-encoded key=value pairs)
+        # Must URL-encode both keys and values to handle special characters and Chinese
+        tag_string = '&'.join([f'{quote(str(k), safe="")}={quote(str(v), safe="")}' for k, v in tags.items()])
+        
+        # Prepare parameters for presigned URL
+        params = {
+            'Bucket': bucket,
+            'Key': key,
+            'ContentType': content_type,
+            'Tagging': tag_string
+        }
+        
+        try:
+            # Generate presigned URL for PUT operation with tagging
+            url = self.client.generate_presigned_url(
+                ClientMethod='put_object',
+                Params=params,
+                ExpiresIn=expiration,
+                HttpMethod='PUT'
+            )
+            
+            current_app.logger.info(f'Generated presigned upload URL with tags for key: {key}')
+            return url
+            
+        except ClientError as e:
+            current_app.logger.error(f'Failed to generate presigned upload URL with tags: {str(e)}')
+            raise
+    
+    def get_object_tags(self, key: str) -> Dict[str, str]:
+        """
+        Get tags for a specific S3 object
+        
+        Args:
+            key: S3 object key (file path in bucket)
+        
+        Returns:
+            Dictionary of tags (key-value pairs)
+        
+        Raises:
+            ClientError: If object doesn't exist or retrieval fails
+        """
+        bucket = self.get_bucket_name()
+        
+        try:
+            response = self.client.get_object_tagging(
+                Bucket=bucket,
+                Key=key
+            )
+            
+            # Convert TagSet list to dictionary format
+            tags = {tag['Key']: tag['Value'] for tag in response.get('TagSet', [])}
+            
+            current_app.logger.info(f'Retrieved {len(tags)} tags for object: {key}')
+            return tags
+            
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                current_app.logger.warning(f'Object not found: {key}')
+                raise FileNotFoundError(f'对象不存在: {key}')
+            else:
+                current_app.logger.error(f'Failed to get tags for {key}: {str(e)}')
+                raise
+    
+    def update_object_tags(self, key: str, tags: Dict[str, str]) -> None:
+        """
+        Update tags for a specific S3 object
+        
+        Args:
+            key: S3 object key (file path in bucket)
+            tags: Dictionary of tags to apply (replaces existing tags)
+        
+        Raises:
+            ClientError: If object doesn't exist or update fails
+        """
+        bucket = self.get_bucket_name()
+        
+        # Convert tags dictionary to S3 TagSet format
+        tag_set = [{'Key': k, 'Value': v} for k, v in tags.items()]
+        
+        try:
+            self.client.put_object_tagging(
+                Bucket=bucket,
+                Key=key,
+                Tagging={'TagSet': tag_set}
+            )
+            
+            current_app.logger.info(f'Updated tags for object: {key}')
+            
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                current_app.logger.warning(f'Object not found: {key}')
+                raise FileNotFoundError(f'对象不存在: {key}')
+            else:
+                current_app.logger.error(f'Failed to update tags for {key}: {str(e)}')
+                raise
+    
     def generate_presigned_delete_url(
         self,
         key: str,

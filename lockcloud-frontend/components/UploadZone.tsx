@@ -2,28 +2,19 @@
 
 import { useRef, useState, DragEvent } from 'react';
 import { Button } from './Button';
-import { FileNameValidator } from './FileNameValidator';
 import { zhCN } from '@/locales/zh-CN';
-import { useFileStore } from '@/stores/fileStore';
 
 interface UploadZoneProps {
   onFileSelect: (file: File) => void;
   selectedFile: File | null;
-  onUpload: () => void;
-  isUploading: boolean;
-  fileNameError?: string;
 }
 
 export function UploadZone({
   onFileSelect,
   selectedFile,
-  onUpload,
-  isUploading,
-  fileNameError,
 }: UploadZoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const { uploadProgress } = useFileStore();
 
   const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -42,6 +33,17 @@ export function UploadZone({
     e.stopPropagation();
   };
 
+  // File size limit: 2GB
+  const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB in bytes
+
+  const validateFileSize = (file: File): boolean => {
+    if (file.size > MAX_FILE_SIZE) {
+      alert(`文件大小超过限制！\n\n文件大小: ${formatFileSize(file.size)}\n最大限制: 2 GB\n\n请选择小于 2GB 的文件。`);
+      return false;
+    }
+    return true;
+  };
+
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -49,14 +51,20 @@ export function UploadZone({
 
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
-      onFileSelect(files[0]);
+      const file = files[0];
+      if (validateFileSize(file)) {
+        onFileSelect(file);
+      }
     }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      onFileSelect(files[0]);
+      const file = files[0];
+      if (validateFileSize(file)) {
+        onFileSelect(file);
+      }
     }
   };
 
@@ -98,7 +106,7 @@ export function UploadZone({
           transition-all duration-200
           cursor-pointer
           ${isDragging ? 'bg-accent-blue/10 border-accent-blue border-solid' : 'bg-primary-white border-accent-gray/40'}
-          ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent-blue/5 hover:border-accent-gray/60'}
+          hover:bg-accent-blue/5 hover:border-accent-gray/60
         `}
         onClick={handleSelectFileClick}
       >
@@ -107,7 +115,6 @@ export function UploadZone({
           type="file"
           className="hidden"
           onChange={handleFileInputChange}
-          disabled={isUploading}
         />
 
         <div className="space-y-3 md:space-y-4">
@@ -136,6 +143,9 @@ export function UploadZone({
             <p className="text-sm md:text-sm text-accent-gray mt-2">
               或
             </p>
+            <p className="text-xs text-accent-gray mt-2">
+              最大文件大小: 2 GB
+            </p>
           </div>
 
           {/* Select File Button */}
@@ -148,7 +158,6 @@ export function UploadZone({
                 e.stopPropagation();
                 handleSelectFileClick();
               }}
-              disabled={isUploading}
             >
               {zhCN.files.selectFile}
             </Button>
@@ -200,52 +209,11 @@ export function UploadZone({
               <p className="text-xs md:text-sm text-accent-gray mt-1">
                 {formatFileSize(selectedFile.size)}
               </p>
+              <p className="text-xs text-accent-gray mt-1">
+                {selectedFile.type || '未知类型'}
+              </p>
             </div>
           </div>
-
-          {/* File Name Validation */}
-          <div className="mt-3 md:mt-4">
-            <FileNameValidator filename={selectedFile.name} />
-          </div>
-        </div>
-      )}
-
-      {/* Upload Progress */}
-      {isUploading && (
-        <div className="card-functional p-4 md:p-6">
-          <div className="space-y-2 md:space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-sm md:text-sm font-medium text-primary-black">
-                {zhCN.files.uploading}
-              </span>
-              <span className="text-sm md:text-sm text-accent-gray">
-                {uploadProgress}%
-              </span>
-            </div>
-            
-            {/* Progress Bar */}
-            <div className="w-full h-2 md:h-3 bg-accent-gray/20 rounded-md overflow-hidden">
-              <div
-                className="h-full bg-accent-green transition-all duration-300 rounded-md"
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Upload Button */}
-      {selectedFile && !isUploading && (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="success"
-            size="lg"
-            onClick={onUpload}
-            disabled={!!fileNameError}
-          >
-            {zhCN.common.upload}
-          </Button>
         </div>
       )}
     </div>
