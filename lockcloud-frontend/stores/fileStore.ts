@@ -18,7 +18,7 @@ interface FileState {
   setSelectedFile: (file: File | null) => void;
   
   // Actions
-  uploadFile: (file: globalThis.File, directory: string) => Promise<File>;
+  uploadFile: (file: globalThis.File) => Promise<File>;
   deleteFile: (fileId: number) => Promise<void>;
 }
 
@@ -43,18 +43,22 @@ export const useFileStore = create<FileState>((set, get) => ({
   
   setSelectedFile: (file) => set({ selectedFile: file }),
   
-  uploadFile: async (file: globalThis.File, directory: string) => {
+  uploadFile: async (file: globalThis.File) => {
     set({ isUploading: true, uploadProgress: 0 });
     
     try {
-      // Step 1: Request signed upload URL
+      // Note: This is a simplified upload that may need additional parameters
+      // In a real implementation, you'd need to provide activity_date, activity_type, and instructor
       const uploadUrlRequest: UploadUrlRequest = {
-        filename: file.name,
-        directory,
+        original_filename: file.name,
         content_type: file.type,
+        size: file.size,
+        activity_date: new Date().toISOString().split('T')[0], // Default to today
+        activity_type: '', // Should be provided by the UI
+        instructor: '', // Should be provided by the UI
       };
       
-      const { upload_url, file_key } = await filesApi.getUploadUrl(uploadUrlRequest);
+      const { upload_url, s3_key } = await filesApi.getUploadUrl(uploadUrlRequest);
       
       // Step 2: Upload file directly to S3 using signed URL
       await axios.put(upload_url, file, {
@@ -71,11 +75,13 @@ export const useFileStore = create<FileState>((set, get) => ({
       
       // Step 3: Confirm upload with backend
       const confirmRequest: FileConfirmRequest = {
-        file_key,
-        filename: file.name,
-        directory,
+        s3_key,
+        original_filename: file.name,
         size: file.size,
         content_type: file.type,
+        activity_date: new Date().toISOString().split('T')[0],
+        activity_type: '',
+        instructor: '',
       };
       
       const uploadedFile = await filesApi.confirmUpload(confirmRequest);

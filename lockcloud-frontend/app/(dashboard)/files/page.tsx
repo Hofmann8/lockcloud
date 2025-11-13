@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { listFiles } from '@/lib/api/files';
@@ -12,7 +13,7 @@ import { Card } from '@/components/Card';
 import { ErrorCard } from '@/components/ErrorCard';
 import { zhCN } from '@/locales/zh-CN';
 
-export default function FilesPage() {
+function FilesPageContent() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
@@ -132,5 +133,14 @@ export default function FilesPage() {
         </>
       )}
     </div>
+  );
+}
+
+
+export default function FilesPage() {
+  return (
+    <Suspense fallback={<FileGridSkeleton count={6} />}>
+      <FilesPageContent />
+    </Suspense>
   );
 }

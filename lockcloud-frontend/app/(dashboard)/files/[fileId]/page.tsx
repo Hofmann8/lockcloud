@@ -202,6 +202,7 @@ function FilePreviewPageContent({ params }: PageProps) {
           <ImagePreview
             url={file.public_url}
             alt={file.original_filename || file.filename}
+            s3Key={file.s3_key}
           />
         </Suspense>
       );

@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import { getOptimalImageSize, buildS3ImageUrl, buildOptimizedImageUrl } from '@/lib/utils/responsiveImage';
 
 interface ImagePreviewProps {
   url: string;
   alt: string;
+  s3Key?: string; // Optional S3 key for optimized loading
 }
 
 /**
@@ -19,14 +21,28 @@ interface ImagePreviewProps {
  * - Loading state with spinner
  * - Error handling with retry option
  * - Responsive design
+ * - Automatic image optimization based on device capabilities
  * 
- * Requirements: 3.2
+ * Requirements: 3.2, 7.1, 7.2, 7.3, 7.4, 7.5
  */
-export function ImagePreview({ url, alt }: ImagePreviewProps) {
+export function ImagePreview({ url, alt, s3Key }: ImagePreviewProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [optimizedUrl, setOptimizedUrl] = useState<string>(url);
+
+  // Calculate optimized URL on mount and when s3Key changes
+  useEffect(() => {
+    if (s3Key) {
+      // If s3Key is provided, use optimized loading
+      const optimized = buildOptimizedImageUrl(s3Key);
+      setOptimizedUrl(optimized);
+    } else {
+      // Fallback to original URL if no s3Key
+      setOptimizedUrl(url);
+    }
+  }, [s3Key, url]);
 
   const handleImageLoad = () => {
     setIsLoading(false);
@@ -112,7 +128,7 @@ export function ImagePreview({ url, alt }: ImagePreviewProps) {
               重试
             </button>
             <a
-              href={url}
+              href={optimizedUrl}
               download={alt}
               className="inline-flex items-center gap-2 px-4 py-2 bg-accent-gray/20 text-primary-black rounded-lg hover:bg-accent-gray/30 focus:outline-none focus:ring-2 focus:ring-accent-gray focus:ring-offset-2 transition-colors font-medium"
               aria-label={`下载图片 ${alt}`}
@@ -164,8 +180,8 @@ export function ImagePreview({ url, alt }: ImagePreviewProps) {
             }}
           >
             <Image
-              key={`${url}-${retryCount}`}
-              src={url}
+              key={`${optimizedUrl}-${retryCount}`}
+              src={optimizedUrl}
               alt={alt}
               width={1200}
               height={800}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
@@ -11,28 +11,101 @@ import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { LegacyFileTagEditor } from './LegacyFileTagEditor';
 import { zhCN } from '@/locales/zh-CN';
 import toast from 'react-hot-toast';
+import { buildOptimizedImageUrl, buildS3ImageUrl, getOptimalImageSize } from '@/lib/utils/responsiveImage';
 
 interface FileCardProps {
   file: File;
   onFileUpdate?: () => void;
+  observeElement?: (element: HTMLElement | null, file: File) => void;
+  unobserveElement?: (element: HTMLElement | null) => void;
 }
 
-export function FileCard({ file, onFileUpdate }: FileCardProps) {
+export function FileCard({ file, onFileUpdate, observeElement, unobserveElement }: FileCardProps) {
   const router = useRouter();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [videoPreloaded, setVideoPreloaded] = useState(false);
   const user = useAuthStore((state) => state.user);
   const deleteFile = useFileStore((state) => state.deleteFile);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const isOwner = user?.id === file.uploader_id;
   const isImage = file.content_type.startsWith('image/');
   const isVideo = file.content_type.startsWith('video/');
 
+  // Setup Intersection Observer for intelligent preloading
+  useEffect(() => {
+    if (!observeElement || !unobserveElement) return;
+    
+    const element = cardRef.current;
+    if (element) {
+      observeElement(element, file);
+    }
+
+    return () => {
+      if (element) {
+        unobserveElement(element);
+      }
+    };
+  }, [file, observeElement, unobserveElement]);
+
+  // Preload video on first hover to enable 304 caching
+  useEffect(() => {
+    if (!isVideo || !isHovering || videoPreloaded) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Load video metadata and first few seconds
+    video.load();
+    
+    // Mark as preloaded once metadata is loaded
+    const handleLoadedMetadata = () => {
+      setVideoPreloaded(true);
+    };
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+
+    return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    };
+  }, [isVideo, isHovering, videoPreloaded]);
+
+  // Control video playback based on hover state
+  useEffect(() => {
+    if (!isVideo) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isHovering && videoPreloaded) {
+      video.play().catch(err => {
+        console.log('Video play failed:', err);
+      });
+    } else {
+      video.pause();
+      video.currentTime = 0;
+    }
+  }, [isVideo, isHovering, videoPreloaded]);
+
+  // Generate optimized image URL for thumbnails
+  const getOptimizedThumbnailUrl = (s3Key: string): string => {
+    // For thumbnails in cards, use smaller size (max 800px width)
+    return buildS3ImageUrl(s3Key, {
+      width: 800,
+      quality: 80,
+      format: 'webp',
+    });
+  };
+
   // Generate video thumbnail URL (first frame)
-  const getVideoThumbnail = (url: string): string => {
-    return `${url}?frame=0&w=800&cs=srgb`;
+  const getVideoThumbnail = (s3Key: string): string => {
+    // Use S3 image processing for video frames
+    const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud.s3.bitiful.net';
+    return `${baseUrl}/${s3Key}?frame=0&w=800&cs=srgb`;
   };
 
   // Format file size
@@ -111,11 +184,12 @@ export function FileCard({ file, onFileUpdate }: FileCardProps) {
 
   return (
     <>
-      <Card 
-        padding="none" 
-        hoverable 
-        className="overflow-hidden group"
-      >
+      <div ref={cardRef}>
+        <Card 
+          padding="none" 
+          hoverable 
+          className="overflow-hidden group"
+        >
         {/* Thumbnail/Icon */}
         <div
           className="relative h-48 bg-accent-gray/10 flex items-center justify-center cursor-pointer overflow-hidden rounded-t-xl"
@@ -125,32 +199,29 @@ export function FileCard({ file, onFileUpdate }: FileCardProps) {
         >
           {isImage ? (
             <img
-              src={file.public_url}
+              src={getOptimizedThumbnailUrl(file.s3_key)}
               alt={file.filename}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
             />
           ) : isVideo ? (
             <>
-              {/* Video thumbnail (first frame) */}
-              {!isHovering && (
-                <img
-                  src={getVideoThumbnail(file.public_url)}
-                  alt={file.filename}
-                  className="w-full h-full object-cover transition-opacity duration-200"
-                />
-              )}
+              {/* Video thumbnail (first frame) - shown when not hovering */}
+              <img
+                src={getVideoThumbnail(file.s3_key)}
+                alt={file.filename}
+                className={`w-full h-full object-cover transition-opacity duration-200 ${isHovering && videoPreloaded ? 'opacity-0' : 'opacity-100'}`}
+              />
               
-              {/* Video preview on hover */}
-              {isHovering && (
-                <video
-                  src={file.public_url}
-                  className="w-full h-full object-cover"
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                />
-              )}
+              {/* Video preview - always mounted but hidden when not hovering */}
+              <video
+                ref={videoRef}
+                src={file.public_url}
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${isHovering && videoPreloaded ? 'opacity-100' : 'opacity-0'}`}
+                loop
+                muted
+                playsInline
+                preload="metadata"
+              />
               
               {/* Video play icon overlay */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -293,6 +364,7 @@ export function FileCard({ file, onFileUpdate }: FileCardProps) {
           </div>
         </div>
       </Card>
+      </div>
 
       {/* Delete Confirmation Modal */}
       <DeleteConfirmModal

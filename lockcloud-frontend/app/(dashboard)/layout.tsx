@@ -7,6 +7,7 @@ import { Navbar } from '@/components/Navbar';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
 import { LoadingAnimation } from '@/components/LoadingAnimation';
+import { FirstLoginAnnouncement } from '@/components/FirstLoginAnnouncement';
 
 export default function DashboardLayout({
   children,
@@ -88,6 +89,9 @@ export default function DashboardLayout({
         
         <Footer />
       </div>
+
+      {/* First login announcement */}
+      {isAuthenticated && <FirstLoginAnnouncement />}
 
       {/* Loading overlay - stays on top until ready */}
       {shouldShowLoading && (

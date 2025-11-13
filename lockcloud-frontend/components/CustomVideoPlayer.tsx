@@ -29,7 +29,6 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const loadStartTimeRef = useRef<number>(0);
   
   // Video state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -42,8 +41,19 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [buffered, setBuffered] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [isMetadataLoaded, setIsMetadataLoaded] = useState(false);
+
+  // Debug: 检查视频元素状态
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      console.log('[Video] Component mounted, video element exists');
+      console.log('[Video] Initial duration:', video.duration);
+      console.log('[Video] Ready state:', video.readyState);
+      console.log('[Video] Network state:', video.networkState);
+    }
+  }, []);
 
   // Format time as MM:SS
   const formatTime = (seconds: number): string => {
@@ -196,28 +206,52 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
   // Video event handlers
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video) {
+      console.log('[Video] No video ref');
+      return;
+    }
 
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
+    console.log('[Video] Setting up event listeners');
+
+    // 如果视频已经加载了 metadata，立即设置 duration
+    if (video.duration && isFinite(video.duration)) {
+      console.log('[Video] Setting initial duration:', video.duration);
+      setDuration(video.duration);
+      setIsMetadataLoaded(true);
+    } else {
+      // 如果还没有 duration，尝试触发加载
+      console.log('[Video] No duration yet, triggering load');
+      video.load();
+    }
+
+    const handlePlay = () => {
+      console.log('[Video] Play event');
+      setIsPlaying(true);
+    };
+    const handlePause = () => {
+      console.log('[Video] Pause event');
+      setIsPlaying(false);
+    };
     const handleTimeUpdate = () => setCurrentTime(video.currentTime);
-    const handleDurationChange = () => setDuration(video.duration);
+    const handleDurationChange = () => {
+      console.log('[Video] Duration changed:', video.duration);
+      if (video.duration && isFinite(video.duration)) {
+        setDuration(video.duration);
+        setIsMetadataLoaded(true);
+      }
+    };
     const handleVolumeChange = () => {
       setVolume(video.volume);
       setIsMuted(video.muted);
     };
-    const handleLoadStart = () => {
-      loadStartTimeRef.current = Date.now();
-      setIsLoading(true);
-    };
-    const handleCanPlay = () => {
-      setIsLoading(false);
-    };
     const handleLoadedMetadata = () => {
-      setDuration(video.duration);
+      console.log('[Video] Metadata loaded, duration:', video.duration);
+      if (video.duration && isFinite(video.duration)) {
+        setDuration(video.duration);
+        setIsMetadataLoaded(true);
+      }
     };
     const handleError = (event: Event) => {
-      setIsLoading(false);
       setHasError(true);
       if (onError) {
         onError(event as unknown as React.SyntheticEvent<HTMLVideoElement, Event>);
@@ -235,8 +269,6 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('durationchange', handleDurationChange);
     video.addEventListener('volumechange', handleVolumeChange);
-    video.addEventListener('loadstart', handleLoadStart);
-    video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('error', handleError);
     video.addEventListener('progress', handleProgress);
@@ -247,8 +279,6 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('durationchange', handleDurationChange);
       video.removeEventListener('volumechange', handleVolumeChange);
-      video.removeEventListener('loadstart', handleLoadStart);
-      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('error', handleError);
       video.removeEventListener('progress', handleProgress);
@@ -327,9 +357,9 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
         src={src}
         className={`w-full h-full object-contain cursor-pointer transition-transform touch-manipulation ${
           isMirrored ? 'scale-x-[-1]' : ''
-        }`}
+        } ${!isMetadataLoaded ? 'invisible' : ''}`}
         onClick={togglePlay}
-        preload="metadata"
+        preload="auto"
         playsInline
         crossOrigin="anonymous"
         aria-label="视频内容"
@@ -342,15 +372,20 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
         }}
       />
 
-      {/* Loading Spinner (center) */}
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true"></div>
+      {/* Loading overlay while metadata is being loaded */}
+      {!isMetadataLoaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+          <div className="text-center text-white">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4" aria-hidden="true"></div>
+            <p>加载视频信息中...</p>
+          </div>
         </div>
       )}
 
+
+
       {/* Play/Pause Overlay (center) */}
-      {!isPlaying && !isLoading && (
+      {!isPlaying && isMetadataLoaded && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <button
             onClick={togglePlay}
@@ -365,13 +400,14 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
       )}
 
       {/* Controls */}
-      <div
-        className={`absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/80 to-transparent transition-opacity duration-300 ${
-          showControls || !isPlaying ? 'opacity-100' : 'opacity-0'
-        }`}
-        role="group"
-        aria-label="视频控制栏"
-      >
+      {isMetadataLoaded && (
+        <div
+          className={`absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/80 to-transparent transition-opacity duration-300 ${
+            showControls || !isPlaying ? 'opacity-100' : 'opacity-0'
+          }`}
+          role="group"
+          aria-label="视频控制栏"
+        >
         {/* Progress Bar */}
         <ProgressBar
           currentTime={currentTime}
@@ -449,6 +485,7 @@ export function CustomVideoPlayer({ src, className = '', onError, aspectRatio }:
           </button>
         </div>
       </div>
+      )}
 
     </div>
   );

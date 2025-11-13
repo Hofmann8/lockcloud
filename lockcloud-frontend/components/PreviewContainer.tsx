@@ -38,7 +38,7 @@ export function PreviewContainer({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 lg:gap-6">
         {/* Preview Area - Left/Top */}
         <div className="lg:col-span-8">
-          <div className="bg-primary-white rounded-lg border border-accent-gray/20 overflow-hidden">
+          <div className="bg-primary-white rounded-lg overflow-hidden">
             {children}
           </div>
         </div>
