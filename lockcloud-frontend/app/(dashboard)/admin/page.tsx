@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import * as adminApi from '@/lib/api/admin';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
+import { MobileMenuButton } from '@/components/MobileMenuButton';
 import toast from 'react-hot-toast';
 
 export default function AdminPage() {
@@ -120,7 +121,10 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-primary-black">管理中心</h1>
+        <div className="flex items-center gap-3">
+          <MobileMenuButton />
+          <h1 className="text-3xl font-bold text-primary-black">管理中心</h1>
+        </div>
       </div>
 
       {/* Tabs */}

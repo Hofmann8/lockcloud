@@ -92,75 +92,151 @@ export function UploadZone({
 
   return (
     <div className="space-y-4 md:space-y-6">
-      {/* Drag and Drop Zone */}
-      <div
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        className={`
-          border-2 border-dashed
-          rounded-xl
-          p-8 md:p-12
-          text-center
-          transition-all duration-200
-          cursor-pointer
-          ${isDragging ? 'bg-accent-blue/10 border-accent-blue border-solid' : 'bg-primary-white border-accent-gray/40'}
-          hover:bg-accent-blue/5 hover:border-accent-gray/60
-        `}
-        onClick={handleSelectFileClick}
-      >
+      {/* Mobile-First Upload Zone */}
+      <div className="relative">
+        {/* Hidden File Input */}
         <input
           ref={fileInputRef}
           type="file"
           className="hidden"
           onChange={handleFileInputChange}
+          accept="*/*"
+          capture="environment"
         />
 
-        <div className="space-y-3 md:space-y-4">
-          {/* Upload Icon */}
-          <div className="flex justify-center">
-            <svg
-              className="w-12 h-12 md:w-16 md:h-16 text-accent-gray"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-          </div>
+        {/* Desktop: Drag and Drop Zone */}
+        <div
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          className={`
+            hidden md:block
+            border-2 border-dashed
+            rounded-xl
+            p-12
+            text-center
+            transition-all duration-200
+            cursor-pointer
+            ${isDragging ? 'bg-accent-blue/10 border-accent-blue border-solid' : 'bg-primary-white border-accent-gray/40'}
+            hover:bg-accent-blue/5 hover:border-accent-gray/60
+          `}
+          onClick={handleSelectFileClick}
+        >
+          <div className="space-y-4">
+            {/* Upload Icon */}
+            <div className="flex justify-center">
+              <svg
+                className="w-16 h-16 text-accent-gray"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+            </div>
 
-          {/* Drag and Drop Text */}
-          <div>
-            <p className="text-base md:text-lg text-primary-black font-medium">
-              {zhCN.files.dragDropHint}
-            </p>
-            <p className="text-sm md:text-sm text-accent-gray mt-2">
-              或
-            </p>
-            <p className="text-xs text-accent-gray mt-2">
-              最大文件大小: 2 GB
-            </p>
-          </div>
+            <div>
+              <p className="text-lg text-primary-black font-medium">
+                {zhCN.files.dragDropHint}
+              </p>
+              <p className="text-sm text-accent-gray mt-2">
+                或
+              </p>
+              <p className="text-xs text-accent-gray mt-2">
+                最大文件大小: 2 GB
+              </p>
+            </div>
 
-          {/* Select File Button */}
-          <div>
-            <Button
-              type="button"
-              variant="primary"
-              size="lg"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSelectFileClick();
-              }}
-            >
-              {zhCN.files.selectFile}
-            </Button>
+            <div>
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSelectFileClick();
+                }}
+              >
+                {zhCN.files.selectFile}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile: Simple Upload Button */}
+        <div className="md:hidden">
+          <div className="bg-white rounded-xl border-2 border-accent-gray/30 p-6">
+            <div className="space-y-4">
+              {/* Upload Icon */}
+              <div className="flex justify-center">
+                <div className="w-16 h-16 rounded-full bg-accent-blue/10 flex items-center justify-center">
+                  <svg
+                    className="w-8 h-8 text-accent-blue"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 4v16m8-8H4"
+                    />
+                  </svg>
+                </div>
+              </div>
+
+              <div className="text-center">
+                <p className="text-base text-primary-black font-medium">
+                  选择要上传的文件
+                </p>
+                <p className="text-xs text-accent-gray mt-2">
+                  支持照片、视频等各类文件
+                </p>
+                <p className="text-xs text-accent-gray mt-1">
+                  最大 2 GB
+                </p>
+              </div>
+
+              {/* Upload Buttons */}
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={handleSelectFileClick}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-accent-green text-white rounded-lg font-medium hover:bg-accent-green/90 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span>从相册选择</span>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Trigger file input with camera
+                    const input = fileInputRef.current;
+                    if (input) {
+                      input.setAttribute('capture', 'environment');
+                      input.click();
+                    }
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-white text-primary-black border-2 border-accent-gray/30 rounded-lg font-medium hover:bg-accent-gray/5 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span>拍照上传</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

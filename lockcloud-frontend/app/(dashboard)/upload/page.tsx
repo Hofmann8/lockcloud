@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { UploadZone } from '@/components/UploadZone';
 import { UploadForm } from '@/components/UploadForm';
+import { MobileMenuButton } from '@/components/MobileMenuButton';
 import { zhCN } from '@/locales/zh-CN';
 
 export default function UploadPage() {
@@ -20,9 +21,12 @@ export default function UploadPage() {
     <div className="max-w-4xl mx-auto">
       {/* Page Title */}
       <div className="mb-6 md:mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-primary-black">
-          {zhCN.files.upload}
-        </h1>
+        <div className="flex items-center gap-3">
+          <MobileMenuButton />
+          <h1 className="text-2xl md:text-3xl font-bold text-primary-black">
+            {zhCN.files.upload}
+          </h1>
+        </div>
       </div>
 
       {/* Upload Zone - File selection */}

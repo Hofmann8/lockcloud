@@ -480,8 +480,14 @@ def list_files():
         if directory:
             # Normalize directory path
             directory_normalized = directory.strip('/')
-            # Use prefix matching to include all subdirectories
-            query = query.filter(File.directory.startswith(directory_normalized))
+            # Exact directory match or subdirectory match (with trailing slash)
+            # This ensures "测试目录" doesn't match "测试目录2"
+            query = query.filter(
+                or_(
+                    File.directory == directory_normalized,  # Exact match
+                    File.directory.startswith(directory_normalized + '/')  # Subdirectory match
+                )
+            )
         
         if uploader_id:
             query = query.filter(File.uploader_id == uploader_id)

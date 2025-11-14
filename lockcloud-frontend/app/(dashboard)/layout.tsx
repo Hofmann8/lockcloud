@@ -12,13 +12,14 @@ import { FirstLoginAnnouncement } from '@/components/FirstLoginAnnouncement';
 export default function DashboardLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: React.NodeNode;
 }) {
   const router = useRouter();
   const { isAuthenticated, isLoading, initialize } = useAuthStore();
   const [initialized, setInitialized] = useState(false);
   const [contentReady, setContentReady] = useState(false);
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,8 +78,8 @@ export default function DashboardLayout({
       <div ref={contentRef} className="h-screen flex flex-col bg-white overflow-hidden">
         <Navbar />
         
-        <div className="flex flex-1 overflow-hidden">
-          <Sidebar />
+        <div className="flex flex-1 overflow-hidden relative">
+          <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onOpen={() => setSidebarOpen(true)} />
           
           <main className="flex-1 overflow-y-auto bg-gray-50 custom-scrollbar">
             <div className="max-w-[1400px] mx-auto px-4 sm:px-6 md:px-8 lg:px-12 py-4 sm:py-6 md:py-8">

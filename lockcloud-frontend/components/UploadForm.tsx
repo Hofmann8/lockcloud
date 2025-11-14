@@ -275,11 +275,11 @@ export function UploadForm({ selectedFile, onUploadComplete }: UploadFormProps) 
         </div>
       </div>
 
-      {/* Main Content - Grid Layout */}
-      <div className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left: Calendar */}
-          <div className="space-y-3">
+      {/* Main Content - Responsive Layout */}
+      <div className="p-4 md:p-6">
+        <div className="space-y-4 md:space-y-0 md:grid md:grid-cols-2 md:gap-6">
+          {/* Left: Calendar - Hidden on mobile, shown on desktop */}
+          <div className="hidden md:block space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
               <svg className="w-4 h-4 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -312,6 +312,44 @@ export function UploadForm({ selectedFile, onUploadComplete }: UploadFormProps) 
 
           {/* Right: Tags and Filename */}
           <div className="space-y-4">
+            {/* Mobile: Date Input */}
+            <div className="md:hidden space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
+                <svg className="w-4 h-4 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                活动日期
+                <span className="text-semantic-error">*</span>
+              </div>
+              
+              <input
+                type="date"
+                value={activityDate}
+                onChange={(e) => {
+                  setActivityDate(e.target.value);
+                  if (errors.activityDate) {
+                    setErrors({ ...errors, activityDate: undefined });
+                  }
+                }}
+                disabled={isUploading}
+                className={`w-full px-3 py-2.5 text-sm border rounded-lg transition-colors
+                  ${errors.activityDate 
+                    ? 'border-semantic-error focus:border-semantic-error focus:ring-semantic-error/20' 
+                    : 'border-accent-gray/30 focus:border-accent-green focus:ring-accent-green/20'
+                  }
+                  focus:outline-none focus:ring-2
+                  disabled:bg-accent-gray/5 disabled:cursor-not-allowed`}
+              />
+              
+              {errors.activityDate && (
+                <p className="text-xs text-semantic-error flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  {errors.activityDate}
+                </p>
+              )}
+            </div>
             {/* Custom Filename */}
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
@@ -334,7 +372,7 @@ export function UploadForm({ selectedFile, onUploadComplete }: UploadFormProps) 
                   }}
                   placeholder={selectedFile ? selectedFile.name.replace(/\.[^/.]+$/, '') : '留空使用原文件名'}
                   disabled={isUploading}
-                  className={`w-full px-3 py-2 text-sm border rounded-lg transition-colors
+                  className={`w-full px-3 py-2.5 text-sm border rounded-lg transition-colors
                     ${errors.customFilename 
                       ? 'border-semantic-error focus:border-semantic-error focus:ring-semantic-error/20' 
                       : 'border-accent-gray/30 focus:border-accent-green focus:ring-accent-green/20'

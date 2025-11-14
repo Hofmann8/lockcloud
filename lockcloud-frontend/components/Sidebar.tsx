@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
@@ -14,7 +14,7 @@ interface DirectoryItemProps {
 }
 
 function DirectoryItem({ node, level, currentPath }: DirectoryItemProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(level < 2); // Auto-expand first 2 levels
   const hasChildren = node.subdirectories && node.subdirectories.length > 0;
   const isActive = currentPath.includes(node.path);
   const fileCount = node.file_count || 0;
@@ -80,6 +80,13 @@ function DirectoryItem({ node, level, currentPath }: DirectoryItemProps) {
         <Link 
           href={`/files?directory=${encodeURIComponent(node.path)}`} 
           className="flex-1 flex items-center space-x-2 text-primary-black py-2 pr-3 min-w-0"
+          onClick={(e) => {
+            // Close sidebar on mobile when clicking a link
+            if (window.innerWidth < 1024) {
+              const event = new CustomEvent('closeSidebar');
+              window.dispatchEvent(event);
+            }
+          }}
         >
           {getIcon()}
           <span className="text-sm font-medium flex-1 truncate">{node.name}</span>
@@ -105,7 +112,13 @@ function DirectoryItem({ node, level, currentPath }: DirectoryItemProps) {
   );
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onOpen: () => void;
+}
+
+export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
   const pathname = usePathname();
   
   // Fetch directory structure from API (based on tag presets)
@@ -117,13 +130,59 @@ export function Sidebar() {
 
   // Extract directories array from response
   const directories = directoriesResponse?.directories || [];
+  
+  // Listen for custom close/open events
+  useEffect(() => {
+    const handleClose = () => onClose();
+    const handleOpen = () => onOpen();
+    window.addEventListener('closeSidebar', handleClose);
+    window.addEventListener('openSidebar', handleOpen);
+    return () => {
+      window.removeEventListener('closeSidebar', handleClose);
+      window.removeEventListener('openSidebar', handleOpen);
+    };
+  }, [onClose, onOpen]);
 
   return (
-    <aside className="w-64 bg-white border-r border-accent-gray/20 h-full flex flex-col overflow-hidden">
-      <div className="p-4 flex-1 overflow-y-auto custom-scrollbar-nav">
+    <>
+      {/* Mobile Overlay */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      
+      {/* Sidebar */}
+      <aside className={`
+        fixed lg:static inset-y-0 left-0 z-50
+        w-64 bg-white border-r border-accent-gray/20 h-full flex flex-col overflow-hidden
+        transform transition-transform duration-300 ease-in-out lg:transform-none
+        ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
+        {/* Mobile Close Button */}
+        <div className="lg:hidden flex justify-end p-4 border-b border-accent-gray/20">
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-accent-gray/10 rounded-lg transition-colors"
+            aria-label="关闭侧边栏"
+          >
+            <svg className="w-6 h-6 text-primary-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="p-4 flex-1 overflow-y-auto custom-scrollbar-nav">
         <Link 
           href="/files" 
           className="flex items-center gap-2 mb-4 px-2 py-2 rounded-lg hover:bg-accent-gray/10 transition-colors text-primary-black group"
+          onClick={() => {
+            if (window.innerWidth < 1024) {
+              onClose();
+            }
+          }}
         >
           <svg className="w-5 h-5 text-accent-green group-hover:text-accent-orange transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -159,6 +218,7 @@ export function Sidebar() {
           </div>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

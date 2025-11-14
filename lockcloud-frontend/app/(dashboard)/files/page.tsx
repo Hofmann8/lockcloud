@@ -11,6 +11,7 @@ import { FileGridSkeleton } from '@/components/SkeletonLoader';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { ErrorCard } from '@/components/ErrorCard';
+import { MobileMenuButton } from '@/components/MobileMenuButton';
 import { zhCN } from '@/locales/zh-CN';
 
 function FilesPageContent() {
@@ -70,9 +71,12 @@ function FilesPageContent() {
   return (
     <div className="space-y-4 md:space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl md:text-3xl font-sans font-bold text-primary-black">
-          {zhCN.files.title}
-        </h1>
+        <div className="flex items-center gap-3">
+          <MobileMenuButton />
+          <h1 className="text-2xl md:text-3xl font-sans font-bold text-primary-black">
+            {zhCN.files.title}
+          </h1>
+        </div>
       </div>
 
       {/* Unified Search */}

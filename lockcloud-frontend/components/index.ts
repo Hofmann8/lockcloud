@@ -5,6 +5,7 @@ export { LoadingAnimation } from './LoadingAnimation';
 export { Modal, ModalFooter } from './Modal';
 export { ErrorBoundary } from './ErrorBoundary';
 export { LoadingSpinner, LoadingOverlay, InlineLoading } from './LoadingSpinner';
+export { MobileMenuButton } from './MobileMenuButton';
 export { TagSelector } from './TagSelector';
 export { 
   Skeleton, 
