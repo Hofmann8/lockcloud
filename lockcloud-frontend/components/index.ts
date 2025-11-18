@@ -7,6 +7,7 @@ export { ErrorBoundary } from './ErrorBoundary';
 export { LoadingSpinner, LoadingOverlay, InlineLoading } from './LoadingSpinner';
 export { MobileMenuButton } from './MobileMenuButton';
 export { TagSelector } from './TagSelector';
+export { Pagination } from './Pagination';
 export { 
   Skeleton, 
   FileCardSkeleton, 
@@ -17,9 +18,13 @@ export {
   StatCardSkeleton,
   StatsGridSkeleton
 } from './SkeletonLoader';
-export { CustomVideoPlayer } from './CustomVideoPlayer';
-export { PlaybackSpeedControl } from './PlaybackSpeedControl';
-export { MirrorToggle } from './MirrorToggle';
+// 视频播放器组件
+export { DanceVideoPlayer } from './DanceVideoPlayer';
+export { SimpleVideoPlayer } from './SimpleVideoPlayer';
+export { VideoPreviewSimple } from './VideoPreviewSimple';
+
+// 文件卡片组件
+export { FileCardSimple } from './FileCardSimple';
 export { ImagePreview } from './ImagePreview';
 export { PreviewContainer, PreviewArea } from './PreviewContainer';
 export { PathBreadcrumb } from './PathBreadcrumb';

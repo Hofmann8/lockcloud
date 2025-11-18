@@ -107,3 +107,18 @@ export const updateFileTags = async (
   const response = await apiClient.patch(`/api/files/${fileId}/tags`, data);
   return response.data.file;
 };
+
+/**
+ * Check if filenames already exist in database
+ */
+export const checkFilenames = async (data: {
+  filenames: string[];
+  activity_date: string;
+  activity_type: string;
+}): Promise<{
+  existing_files: string[];
+  available_files: string[];
+}> => {
+  const response = await apiClient.post('/api/files/check-filenames', data);
+  return response.data;
+};

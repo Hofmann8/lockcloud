@@ -1,7 +1,21 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'funkandlove-cloud.s3.bitiful.net',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 's3.bitiful.net',
+        pathname: '/**',
+      },
+    ],
+    qualities: [75, 85, 90],
+  },
 };
 
 export default nextConfig;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
@@ -11,104 +11,32 @@ import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { LegacyFileTagEditor } from './LegacyFileTagEditor';
 import { zhCN } from '@/locales/zh-CN';
 import toast from 'react-hot-toast';
-import { buildOptimizedImageUrl, buildS3ImageUrl, getOptimalImageSize } from '@/lib/utils/responsiveImage';
 
-interface FileCardProps {
+interface FileCardSimpleProps {
   file: File;
   onFileUpdate?: () => void;
-  observeElement?: (element: HTMLElement | null, file: File) => void;
-  unobserveElement?: (element: HTMLElement | null) => void;
 }
 
-export function FileCard({ file, onFileUpdate, observeElement, unobserveElement }: FileCardProps) {
+/**
+ * FileCardSimple - 简化版文件卡片
+ * 
+ * 只显示静态缩略图，不进行hover预览
+ * 大幅降低流量消耗
+ */
+export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
   const router = useRouter();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
-  const [videoPreloaded, setVideoPreloaded] = useState(false);
+  
   const user = useAuthStore((state) => state.user);
   const deleteFile = useFileStore((state) => state.deleteFile);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   const isOwner = user?.id === file.uploader_id;
   const isImage = file.content_type.startsWith('image/');
   const isVideo = file.content_type.startsWith('video/');
 
-  // Setup Intersection Observer for intelligent preloading
-  useEffect(() => {
-    if (!observeElement || !unobserveElement) return;
-    
-    const element = cardRef.current;
-    if (element) {
-      observeElement(element, file);
-    }
-
-    return () => {
-      if (element) {
-        unobserveElement(element);
-      }
-    };
-  }, [file, observeElement, unobserveElement]);
-
-  // Preload video on first hover to enable 304 caching
-  useEffect(() => {
-    if (!isVideo || !isHovering || videoPreloaded) return;
-
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Load video metadata and first few seconds
-    video.load();
-    
-    // Mark as preloaded once metadata is loaded
-    const handleLoadedMetadata = () => {
-      setVideoPreloaded(true);
-    };
-
-    video.addEventListener('loadedmetadata', handleLoadedMetadata);
-
-    return () => {
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-    };
-  }, [isVideo, isHovering, videoPreloaded]);
-
-  // Control video playback based on hover state
-  useEffect(() => {
-    if (!isVideo) return;
-
-    const video = videoRef.current;
-    if (!video) return;
-
-    if (isHovering && videoPreloaded) {
-      video.play().catch(err => {
-        console.log('Video play failed:', err);
-      });
-    } else {
-      video.pause();
-      video.currentTime = 0;
-    }
-  }, [isVideo, isHovering, videoPreloaded]);
-
-  // Generate optimized image URL for thumbnails
-  const getOptimizedThumbnailUrl = (s3Key: string): string => {
-    // For thumbnails in cards, use smaller size (max 800px width)
-    return buildS3ImageUrl(s3Key, {
-      width: 800,
-      quality: 80,
-      format: 'webp',
-    });
-  };
-
-  // Generate video thumbnail URL (first frame)
-  const getVideoThumbnail = (s3Key: string): string => {
-    // Use S3 image processing for video frames
-    const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud.s3.bitiful.net';
-    return `${baseUrl}/${s3Key}?frame=0&w=800&cs=srgb`;
-  };
-
-  // Format file size
+  // 格式化文件大小
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} ${zhCN.units.bytes}`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ${zhCN.units.kb}`;
@@ -116,7 +44,7 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} ${zhCN.units.gb}`;
   };
 
-  // Format upload date
+  // 格式化日期
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     const year = date.getFullYear();
@@ -125,13 +53,12 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
     return `${year}${zhCN.units.year}${month}${zhCN.units.month}${day}${zhCN.units.day}`;
   };
 
-  // Format activity date (YYYY年MM月DD日)
   const formatActivityDate = (dateString: string): string => {
     const [year, month, day] = dateString.split('-');
     return `${year}${zhCN.units.year}${month}${zhCN.units.month}${day}${zhCN.units.day}`;
   };
 
-  // Get file icon based on content type
+  // 获取文件图标
   const getFileIcon = (): string => {
     if (isImage) return '🖼️';
     if (isVideo) return '🎬';
@@ -139,6 +66,25 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
     if (file.content_type.includes('audio')) return '🎵';
     if (file.content_type.includes('zip') || file.content_type.includes('rar')) return '📦';
     return '📁';
+  };
+
+  // 获取缩略图 URL
+  const getThumbnailUrl = (): string | null => {
+    if (!file.s3_key) return null;
+    
+    const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud.s3.bitiful.net';
+    
+    // 视频：使用 S3 提供的视频第一帧服务
+    if (isVideo) {
+      return `${baseUrl}/${file.s3_key}#t=0.1`;
+    }
+    
+    // 图片：使用压缩的图片URL
+    if (isImage) {
+      return `${baseUrl}/${file.s3_key}?w=400&q=75`;
+    }
+    
+    return null;
   };
 
   const handleDeleteClick = () => {
@@ -152,14 +98,12 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
       toast.success(zhCN.files.deleteSuccess);
       setIsDeleteModalOpen(false);
       
-      // Trigger parent refresh
       if (onFileUpdate) {
         onFileUpdate();
       }
     } catch (error) {
       console.error('Delete error:', error);
       
-      // Handle specific error cases
       const err = error as { code?: string; message?: string };
       if (err?.code === 'FILE_002' || err?.message?.includes('无权')) {
         toast.error(zhCN.files.noPermission);
@@ -182,73 +126,60 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
     router.push(`/files/${file.id}`);
   };
 
+  const thumbnailUrl = getThumbnailUrl();
+
   return (
     <>
-      <div ref={cardRef}>
-        <Card 
-          padding="none" 
-          hoverable 
-          className="overflow-hidden group"
-        >
-        {/* Thumbnail/Icon */}
+      <Card padding="none" hoverable className="overflow-hidden group">
+        {/* 缩略图/图标 */}
         <div
           className="relative h-48 bg-accent-gray/10 flex items-center justify-center cursor-pointer overflow-hidden rounded-t-xl"
           onClick={handleCardClick}
-          onMouseEnter={() => setIsHovering(true)}
-          onMouseLeave={() => setIsHovering(false)}
         >
-          {isImage ? (
+          {isVideo && file.public_url ? (
+            // 视频：使用 video 标签显示第一帧
+            <video
+              src={file.public_url}
+              className="w-full h-full object-cover"
+              preload="metadata"
+              muted
+              playsInline
+            />
+          ) : thumbnailUrl ? (
+            // 图片缩略图
             <img
-              src={getOptimizedThumbnailUrl(file.s3_key)}
+              src={thumbnailUrl}
               alt={file.filename}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+              loading="lazy"
             />
-          ) : isVideo ? (
-            <>
-              {/* Video thumbnail (first frame) - shown when not hovering */}
-              <img
-                src={getVideoThumbnail(file.s3_key)}
-                alt={file.filename}
-                className={`w-full h-full object-cover transition-opacity duration-200 ${isHovering && videoPreloaded ? 'opacity-0' : 'opacity-100'}`}
-              />
-              
-              {/* Video preview - always mounted but hidden when not hovering */}
-              <video
-                ref={videoRef}
-                src={file.public_url}
-                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${isHovering && videoPreloaded ? 'opacity-100' : 'opacity-0'}`}
-                loop
-                muted
-                playsInline
-                preload="metadata"
-              />
-              
-              {/* Video play icon overlay */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="bg-primary-black/50 rounded-full p-3 group-hover:bg-primary-black/70 transition-colors">
-                  <svg className="w-8 h-8 text-primary-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                  </svg>
-                </div>
-              </div>
-            </>
           ) : (
+            // 文件图标（文档等）
             <span className="text-6xl">{getFileIcon()}</span>
           )}
           
-          {/* Hover overlay for non-video files */}
-          {!isVideo && (
-            <div className="absolute inset-0 bg-primary-black/0 group-hover:bg-primary-black/20 transition-colors duration-200 flex items-center justify-center">
-              <span className="text-primary-white opacity-0 group-hover:opacity-100 transition-opacity duration-200 font-medium">
-                预览
-              </span>
+          {/* 视频播放图标叠加 */}
+          {isVideo && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="bg-primary-black/60 rounded-full p-4 group-hover:bg-primary-black/80 transition-colors">
+                <svg className="w-10 h-10 text-primary-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                </svg>
+              </div>
             </div>
           )}
+          
+          {/* 悬停叠加层 */}
+          <div className="absolute inset-0 bg-primary-black/0 group-hover:bg-primary-black/20 transition-colors duration-200 flex items-center justify-center">
+            <span className="text-primary-white opacity-0 group-hover:opacity-100 transition-opacity duration-200 font-medium">
+              {isVideo ? '点击播放' : '预览'}
+            </span>
+          </div>
         </div>
 
-        {/* File Info */}
+        {/* 文件信息 */}
         <div className="p-4 space-y-3">
-          {/* Filename */}
+          {/* 文件名 */}
           <div>
             <h3 className="font-semibold text-base text-primary-black truncate" title={file.filename}>
               {file.filename}
@@ -260,7 +191,7 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
             )}
           </div>
 
-          {/* Legacy file badge */}
+          {/* Legacy 标记 */}
           {file.is_legacy && (
             <div>
               <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-md">
@@ -272,9 +203,9 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
             </div>
           )}
 
-          {/* Metadata Grid */}
+          {/* 元数据 */}
           <div className="space-y-2.5">
-            {/* Activity Date */}
+            {/* 活动日期 */}
             {file.activity_date && (
               <div className="flex items-start gap-2">
                 <svg className="w-4 h-4 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -287,7 +218,7 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
               </div>
             )}
             
-            {/* Activity Type */}
+            {/* 活动类型 */}
             {file.activity_type_display && (
               <div className="flex items-start gap-2">
                 <svg className="w-4 h-4 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -300,7 +231,7 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
               </div>
             )}
             
-            {/* Instructor */}
+            {/* 带训老师 */}
             {file.instructor_display && (
               <div className="flex items-start gap-2">
                 <svg className="w-4 h-4 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -313,21 +244,21 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
               </div>
             )}
             
-            {/* Divider */}
+            {/* 分隔线 */}
             <div className="border-t border-accent-gray/20 pt-2.5">
-              {/* File Size */}
+              {/* 文件大小 */}
               <div className="flex justify-between items-center text-xs">
                 <span className="text-accent-gray">{zhCN.files.fileSize}</span>
                 <span className="font-medium text-primary-black">{formatSize(file.size)}</span>
               </div>
               
-              {/* Upload Date */}
+              {/* 上传日期 */}
               <div className="flex justify-between items-center text-xs mt-1.5">
                 <span className="text-accent-gray">{zhCN.files.uploadDate}</span>
                 <span className="font-medium text-primary-black">{formatDate(file.uploaded_at)}</span>
               </div>
               
-              {/* Uploader */}
+              {/* 上传者 */}
               <div className="flex justify-between items-center text-xs mt-1.5">
                 <span className="text-accent-gray">{zhCN.files.uploader}</span>
                 <span className="font-medium text-primary-black">{file.uploader?.name || 'Unknown'}</span>
@@ -335,9 +266,9 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
             </div>
           </div>
 
-          {/* Actions */}
+          {/* 操作按钮 */}
           <div className="pt-2 space-y-2">
-            {/* Add Tags button for legacy files */}
+            {/* Legacy 文件添加标签 */}
             {file.is_legacy && (
               <Button
                 variant="secondary"
@@ -349,7 +280,7 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
               </Button>
             )}
             
-            {/* Delete button for owners */}
+            {/* 删除按钮 */}
             {isOwner && (
               <Button
                 variant="danger"
@@ -364,9 +295,8 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
           </div>
         </div>
       </Card>
-      </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* 删除确认弹窗 */}
       <DeleteConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
@@ -375,7 +305,7 @@ export function FileCard({ file, onFileUpdate, observeElement, unobserveElement 
         isDeleting={isDeleting}
       />
 
-      {/* Legacy File Tag Editor Modal */}
+      {/* Legacy 文件标签编辑器 */}
       <LegacyFileTagEditor
         file={file}
         isOpen={isTagEditorOpen}

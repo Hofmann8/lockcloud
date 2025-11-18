@@ -1,6 +1,7 @@
 /* 使用国内镜像加载 Google Fonts */
 @import url('https://fonts.font.im/css2?family=Inter:wght@400;500;600;700&family=Caveat:wght@400;700&display=swap');
 @import "tailwindcss";
+@import "./plyr-custom.css";
 
 :root {
   /* Primary Colors */

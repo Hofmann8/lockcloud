@@ -2,7 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
+import { useUploadQueueStore } from '@/stores/uploadQueueStore';
 import { Navbar } from '@/components/Navbar';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
@@ -12,15 +14,26 @@ import { FirstLoginAnnouncement } from '@/components/FirstLoginAnnouncement';
 export default function DashboardLayout({
   children,
 }: {
-  children: React.NodeNode;
+  children: React.ReactNode;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { isAuthenticated, isLoading, initialize } = useAuthStore();
+  const setOnTaskComplete = useUploadQueueStore(state => state.setOnTaskComplete);
   const [initialized, setInitialized] = useState(false);
   const [contentReady, setContentReady] = useState(false);
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Set up global callback to refresh data when upload tasks complete
+  useEffect(() => {
+    setOnTaskComplete(() => {
+      // Refresh file list and directory tree
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['directories'] });
+    });
+  }, [setOnTaskComplete, queryClient]);
 
   useEffect(() => {
     // Initialize auth state on mount - only once

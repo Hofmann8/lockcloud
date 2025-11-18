@@ -38,9 +38,13 @@ export function ImagePreview({ url, alt, s3Key }: ImagePreviewProps) {
       // If s3Key is provided, use optimized loading
       const optimized = buildOptimizedImageUrl(s3Key);
       setOptimizedUrl(optimized);
-    } else {
+    } else if (url) {
       // Fallback to original URL if no s3Key
       setOptimizedUrl(url);
+    } else {
+      // If no URL at all, set error state
+      setHasError(true);
+      setIsLoading(false);
     }
   }, [s3Key, url]);
 
@@ -179,21 +183,23 @@ export function ImagePreview({ url, alt, s3Key }: ImagePreviewProps) {
               maxHeight: isZoomed ? 'none' : 'calc(100vh - 300px)',
             }}
           >
-            <Image
-              key={`${optimizedUrl}-${retryCount}`}
-              src={optimizedUrl}
-              alt={alt}
-              width={1200}
-              height={800}
-              className="object-contain w-auto h-auto max-w-full max-h-[calc(100vh-200px)] sm:max-h-[calc(100vh-250px)] lg:max-h-[calc(100vh-300px)]"
-              onLoad={handleImageLoad}
-              onError={handleImageError}
-              priority={false}
-              loading="lazy"
-              quality={85}
-              unoptimized
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
-            />
+            {optimizedUrl && (
+              <Image
+                key={`${optimizedUrl}-${retryCount}`}
+                src={optimizedUrl}
+                alt={alt}
+                width={1200}
+                height={800}
+                className="object-contain w-auto h-auto max-w-full max-h-[calc(100vh-200px)] sm:max-h-[calc(100vh-250px)] lg:max-h-[calc(100vh-300px)]"
+                onLoad={handleImageLoad}
+                onError={handleImageError}
+                priority={false}
+                loading="lazy"
+                quality={85}
+                unoptimized
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
+              />
+            )}
           </div>
 
           {/* Zoom Hint */}

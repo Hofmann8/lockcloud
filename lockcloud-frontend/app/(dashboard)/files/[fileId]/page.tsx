@@ -13,7 +13,7 @@ import { zhCN } from '@/locales/zh-CN';
 
 // Lazy load preview components for code splitting
 const ImagePreview = lazy(() => import('@/components/ImagePreview').then(mod => ({ default: mod.ImagePreview })));
-const VideoPreview = lazy(() => import('@/components/VideoPreview').then(mod => ({ default: mod.VideoPreview })));
+const VideoPreviewSimple = lazy(() => import('@/components/VideoPreviewSimple').then(mod => ({ default: mod.VideoPreviewSimple })));
 const GenericPreview = lazy(() => import('@/components/GenericPreview').then(mod => ({ default: mod.GenericPreview })));
 
 interface PageProps {
@@ -211,7 +211,7 @@ function FilePreviewPageContent({ params }: PageProps) {
     if (isVideo) {
       return (
         <Suspense fallback={<PreviewLoadingFallback />}>
-          <VideoPreview
+          <VideoPreviewSimple
             url={file.public_url}
             filename={file.original_filename || file.filename}
           />

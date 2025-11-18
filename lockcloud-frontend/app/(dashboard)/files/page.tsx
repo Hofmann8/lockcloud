@@ -8,7 +8,7 @@ import { FileFilters } from '@/types';
 import { FileGrid } from '@/components/FileGrid';
 import { UnifiedSearch } from '@/components/UnifiedSearch';
 import { FileGridSkeleton } from '@/components/SkeletonLoader';
-import { Button } from '@/components/Button';
+import { Pagination } from '@/components/Pagination';
 import { Card } from '@/components/Card';
 import { ErrorCard } from '@/components/ErrorCard';
 import { MobileMenuButton } from '@/components/MobileMenuButton';
@@ -22,7 +22,7 @@ function FilesPageContent() {
   // Derive filters directly from URL parameters (no state needed)
   const filters: FileFilters = {
     page: parseInt(searchParams.get('page') || '1', 10),
-    per_page: 50,
+    per_page: parseInt(searchParams.get('per_page') || '12', 10),
     ...(searchParams.get('directory') && { directory: searchParams.get('directory')! }),
     ...(searchParams.get('activity_type') && { activity_type: searchParams.get('activity_type')! }),
     ...(searchParams.get('instructor') && { instructor: searchParams.get('instructor')! }),
@@ -58,6 +58,15 @@ function FilesPageContent() {
   const handlePageChange = (page: number) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('page', String(page));
+    router.push(`/files?${params.toString()}`);
+    // 滚动到顶部
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handlePerPageChange = (perPage: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('per_page', String(perPage));
+    params.set('page', '1'); // 重置到第一页
     router.push(`/files?${params.toString()}`);
   };
 
@@ -110,29 +119,41 @@ function FilesPageContent() {
       {/* File Grid */}
       {!isLoading && !error && data && data.files.length > 0 && (
         <>
+          {/* 每页显示数量选择器 */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-accent-gray">每页显示</span>
+              <select
+                value={filters.per_page}
+                onChange={(e) => handlePerPageChange(parseInt(e.target.value))}
+                className="px-3 py-1.5 text-sm border border-accent-gray/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-blue/20 bg-white"
+              >
+                <option value={12}>12</option>
+                <option value={24}>24</option>
+                <option value={48}>48</option>
+                <option value={96}>96</option>
+              </select>
+              <span className="text-sm text-accent-gray">项</span>
+            </div>
+            
+            <div className="text-sm text-accent-gray">
+              共 <span className="font-medium text-primary-black">{data.pagination.total}</span> 个文件
+            </div>
+          </div>
+
           <FileGrid files={data.files} onFileUpdate={handleFileUpdate} />
           
           {/* Pagination */}
           {data.pagination.total > data.pagination.per_page && (
-            <div className="flex justify-center items-center gap-3 md:gap-4 mt-6 md:mt-8">
-              <Button
-                variant="secondary"
-                onClick={() => handlePageChange(data.pagination.page - 1)}
-                disabled={!data.pagination.has_prev}
-              >
-                {zhCN.common.previous}
-              </Button>
-              <span className="text-sm md:text-base text-primary-black font-medium">
-                {data.pagination.page} / {data.pagination.pages}
-              </span>
-              <Button
-                variant="secondary"
-                onClick={() => handlePageChange(data.pagination.page + 1)}
-                disabled={!data.pagination.has_next}
-              >
-                {zhCN.common.next}
-              </Button>
-            </div>
+            <Pagination
+              currentPage={data.pagination.page}
+              totalPages={data.pagination.pages}
+              totalItems={data.pagination.total}
+              itemsPerPage={data.pagination.per_page}
+              onPageChange={handlePageChange}
+              hasNext={data.pagination.has_next}
+              hasPrev={data.pagination.has_prev}
+            />
           )}
         </>
       )}

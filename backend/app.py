@@ -168,6 +168,15 @@ def register_error_handlers(app):
     @app.errorhandler(400)
     def bad_request(error):
         """Handle 400 Bad Request errors"""
+        # If the error already has a JSON response with 'error' key, don't override it
+        if hasattr(error, 'response') and error.response:
+            try:
+                data = error.response.get_json()
+                if data and 'error' in data:
+                    return error.response
+            except:
+                pass
+        
         app.logger.warning(f'Bad request: {str(error)}')
         return jsonify({
             'error': {

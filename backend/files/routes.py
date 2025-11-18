@@ -3,7 +3,7 @@ File management routes for LockCloud
 Implements file upload, listing, retrieval, and deletion endpoints
 """
 from datetime import datetime
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, make_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import and_, or_
 from app import db
@@ -123,12 +123,15 @@ def get_upload_url():
         
         extension_validation = validate_file_extension(original_filename)
         if not extension_validation['valid']:
-            return jsonify({
+            current_app.logger.warning(f'File extension validation failed: {extension_validation["message"]}')
+            response = jsonify({
                 'error': {
                     'code': 'VALIDATION_001',
                     'message': extension_validation['message']
                 }
-            }), 400
+            })
+            response.status_code = 400
+            return response
         
         # Validate custom filename if provided
         if custom_filename:
@@ -185,12 +188,15 @@ def get_upload_url():
         ).first()
         
         if existing_file:
-            return jsonify({
+            current_app.logger.warning(f'File already exists: {generated_filename}')
+            response = jsonify({
                 'error': {
                     'code': 'FILE_005',
                     'message': f'该目录下已存在同名文件: {generated_filename}'
                 }
-            }), 400
+            })
+            response.status_code = 400
+            return response
         
         # Get uploader information
         from auth.models import User
@@ -884,5 +890,114 @@ def get_directories():
             'error': {
                 'code': 'INTERNAL_ERROR',
                 'message': '获取目录结构失败，请稍后重试'
+            }
+        }), 500
+
+
+
+@files_bp.route('/check-filenames', methods=['POST'])
+@jwt_required()
+def check_filenames():
+    """
+    Check if filenames already exist in the database for a specific directory
+    
+    POST /api/files/check-filenames
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "filenames": ["file1.mp4", "file2.jpg"],
+        "activity_date": "2025-03-15",
+        "activity_type": "regular_training"
+    }
+    
+    Returns:
+        200: Check completed successfully
+        {
+            "success": true,
+            "existing_files": ["file1.mp4"],  // Files that already exist
+            "available_files": ["file2.jpg"]   // Files that don't exist
+        }
+        400: Invalid input
+        401: Unauthorized
+        500: Check failed
+    """
+    try:
+        # Get current user ID from JWT
+        current_user_id = int(get_jwt_identity())
+        
+        # Get request data
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_INPUT',
+                    'message': '请求数据不能为空'
+                }
+            }), 400
+        
+        filenames = data.get('filenames', [])
+        activity_date_str = data.get('activity_date')
+        activity_type = data.get('activity_type')
+        
+        # Validate input
+        if not filenames or not isinstance(filenames, list):
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_INPUT',
+                    'message': '文件名列表不能为空'
+                }
+            }), 400
+        
+        if not activity_date_str or not activity_type:
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_INPUT',
+                    'message': '活动日期和活动类型不能为空'
+                }
+            }), 400
+        
+        # Parse activity date
+        try:
+            activity_date = datetime.strptime(activity_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({
+                'error': {
+                    'code': 'INVALID_DATE',
+                    'message': '活动日期格式无效，应为YYYY-MM-DD'
+                }
+            }), 400
+        
+        year = activity_date.year
+        month = activity_date.month
+        
+        # Query existing files in the same directory (activity_type/year/month)
+        existing_files_query = File.query.filter(
+            File.activity_type == activity_type,
+            db.func.extract('year', File.activity_date) == year,
+            db.func.extract('month', File.activity_date) == month,
+            File.filename.in_(filenames)
+        ).all()
+        
+        # Get list of existing filenames
+        existing_filenames = [f.filename for f in existing_files_query]
+        available_filenames = [f for f in filenames if f not in existing_filenames]
+        
+        current_app.logger.info(
+            f'User {current_user_id} checked {len(filenames)} filenames, '
+            f'{len(existing_filenames)} exist, {len(available_filenames)} available'
+        )
+        
+        return jsonify({
+            'success': True,
+            'existing_files': existing_filenames,
+            'available_files': available_filenames
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error checking filenames: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '检查文件名失败，请稍后重试'
             }
         }), 500
