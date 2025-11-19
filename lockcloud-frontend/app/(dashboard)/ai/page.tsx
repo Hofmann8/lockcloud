@@ -202,6 +202,29 @@ export default function AIPage() {
       const { messages: loadedMessages } = await aiApi.getConversation(conversationId);
       setCurrentConversationId(conversationId);
       setMessages(loadedMessages.map(msg => ({ ...msg })));
+      
+      // Set metadata for assistant messages with pricing info
+      const newMetadata: Record<number, {
+        model_name?: string;
+        usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+        pricing?: { input: number; output: number };
+      }> = {};
+      
+      loadedMessages.forEach((msg: aiApi.AIMessage) => {
+        if (msg.role === 'assistant' && msg.id) {
+          newMetadata[msg.id] = {
+            model_name: msg.model_name,
+            usage: {
+              prompt_tokens: msg.prompt_tokens || 0,
+              completion_tokens: msg.completion_tokens || 0,
+              total_tokens: msg.total_tokens || 0
+            },
+            pricing: msg.pricing || { input: 0, output: 0 }
+          };
+        }
+      });
+      
+      setMessageMetadata(newMetadata);
     } catch (error) {
       console.error('Failed to load conversation:', error);
       toast.error('加载对话失败');

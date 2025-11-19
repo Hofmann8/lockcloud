@@ -2,7 +2,8 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useAuthStore } from '@/stores/authStore';
 
 /**
  * Providers component that wraps the app with necessary context providers
@@ -34,6 +35,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
       })
   );
+
+  // Track user changes and clear cache when user switches
+  const currentUser = useAuthStore((state) => state.user);
+  const userIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const currentUserId = currentUser?.id || null;
+    
+    // If user changed (including logout), clear all queries
+    if (userIdRef.current !== null && userIdRef.current !== currentUserId) {
+      console.log('User changed, clearing React Query cache');
+      queryClient.clear();
+    }
+    
+    userIdRef.current = currentUserId;
+  }, [currentUser?.id, queryClient]);
 
   return (
     <QueryClientProvider client={queryClient}>

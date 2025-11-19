@@ -70,9 +70,24 @@ def get_conversation(conversation_id):
         .order_by(AIMessage.created_at.asc())\
         .all()
     
+    # Get model pricing for calculating costs
+    from ai.service import AIService
+    ai_service = AIService()
+    model_info = ai_service.get_model_info(conversation.model)
+    pricing = model_info.get('pricing', {'input': 0, 'output': 0})
+    
+    # Add pricing info to each message
+    messages_with_pricing = []
+    for msg in messages:
+        msg_dict = msg.to_dict()
+        if msg.role == 'assistant':
+            msg_dict['model_name'] = model_info.get('name', conversation.model)
+            msg_dict['pricing'] = pricing
+        messages_with_pricing.append(msg_dict)
+    
     return jsonify({
         'conversation': conversation.to_dict(),
-        'messages': [msg.to_dict() for msg in messages]
+        'messages': messages_with_pricing
     }), 200
 
 
@@ -203,6 +218,32 @@ def chat():
         user_message.completion_tokens = 0
         user_message.total_tokens = 0
         
+        # Update user's AI usage statistics
+        from auth.models import User
+        user = User.query.get(user_id)
+        if user:
+            prompt_tokens = usage.get('prompt_tokens', 0)
+            completion_tokens = usage.get('completion_tokens', 0)
+            total_tokens = usage.get('total_tokens', 0)
+            
+            # Calculate cost
+            pricing = response_data.get('pricing', {'input': 0, 'output': 0})
+            input_cost = (prompt_tokens / 1000000) * pricing['input']
+            output_cost = (completion_tokens / 1000000) * pricing['output']
+            message_cost = input_cost + output_cost
+            
+            # Update user statistics
+            user.ai_total_prompt_tokens = (user.ai_total_prompt_tokens or 0) + prompt_tokens
+            user.ai_total_completion_tokens = (user.ai_total_completion_tokens or 0) + completion_tokens
+            user.ai_total_tokens = (user.ai_total_tokens or 0) + total_tokens
+            user.ai_total_cost = (user.ai_total_cost or 0.0) + message_cost
+            
+            # Check if this is the first message in the conversation (new conversation)
+            # Count messages before adding the new one
+            existing_messages = AIMessage.query.filter_by(conversation_id=conversation_id).count()
+            if existing_messages == 0:  # This is the first message pair (user + assistant)
+                user.ai_conversation_count = (user.ai_conversation_count or 0) + 1
+        
         try:
             db.session.commit()
         except Exception as e:
@@ -239,14 +280,17 @@ def get_usage():
     """Get user's usage statistics"""
     user_id = get_jwt_identity()
     
+    # Get user's overall statistics from user table
+    from auth.models import User
+    user = User.query.get(user_id)
+    
+    if not user:
+        raise LockCloudException('AI_007', '用户不存在', 404)
+    
+    # Get conversations for detailed breakdown
     conversations = AIConversation.query.filter_by(user_id=user_id).all()
     
-    # Calculate total tokens and cost
-    total_prompt_tokens = 0
-    total_completion_tokens = 0
-    total_tokens = 0
-    
-    # Group by model
+    # Group by model for detailed statistics
     usage_by_model = {}
     for conv in conversations:
         if conv.model not in usage_by_model:
@@ -266,17 +310,12 @@ def get_usage():
                 usage_by_model[conv.model]['prompt_tokens'] += msg.prompt_tokens or 0
                 usage_by_model[conv.model]['completion_tokens'] += msg.completion_tokens or 0
                 usage_by_model[conv.model]['total_tokens'] += msg.total_tokens or 0
-                
-                total_prompt_tokens += msg.prompt_tokens or 0
-                total_completion_tokens += msg.completion_tokens or 0
-                total_tokens += msg.total_tokens or 0
     
     # Get model pricing from AI service
     from ai.service import AIService
     ai_service = AIService()
     
-    # Calculate total cost
-    total_cost = 0
+    # Calculate cost per model
     for model_id, stats in usage_by_model.items():
         model_info = ai_service.get_model_info(model_id)
         pricing = model_info.get('pricing', {'input': 0, 'output': 0})
@@ -287,13 +326,61 @@ def get_usage():
         
         stats['cost'] = model_cost
         stats['pricing'] = pricing
-        total_cost += model_cost
+    
+    # Return user's overall statistics from user table
+    return jsonify({
+        'conversation_count': user.ai_conversation_count or 0,
+        'total_prompt_tokens': user.ai_total_prompt_tokens or 0,
+        'total_completion_tokens': user.ai_total_completion_tokens or 0,
+        'total_tokens': user.ai_total_tokens or 0,
+        'total_cost': user.ai_total_cost or 0.0,
+        'usage_by_model': usage_by_model
+    }), 200
+
+
+@ai_bp.route('/admin/usage', methods=['GET'])
+@jwt_required()
+def get_all_users_usage():
+    """Get all users' AI usage statistics (admin only)"""
+    from auth.models import User
+    from auth.decorators import admin_required
+    
+    user_id = get_jwt_identity()
+    current_user = User.query.get(user_id)
+    
+    if not current_user or not current_user.is_admin:
+        raise LockCloudException('AUTH_003', '需要管理员权限', 403)
+    
+    # Get all users with their AI statistics
+    users = User.query.all()
+    
+    users_stats = []
+    total_system_cost = 0.0
+    total_system_tokens = 0
+    
+    for user in users:
+        if user.ai_conversation_count and user.ai_conversation_count > 0:
+            users_stats.append({
+                'user_id': user.id,
+                'email': user.email,
+                'name': user.name,
+                'conversation_count': user.ai_conversation_count or 0,
+                'total_prompt_tokens': user.ai_total_prompt_tokens or 0,
+                'total_completion_tokens': user.ai_total_completion_tokens or 0,
+                'total_tokens': user.ai_total_tokens or 0,
+                'total_cost': user.ai_total_cost or 0.0
+            })
+            total_system_cost += user.ai_total_cost or 0.0
+            total_system_tokens += user.ai_total_tokens or 0
+    
+    # Sort by total cost descending
+    users_stats.sort(key=lambda x: x['total_cost'], reverse=True)
     
     return jsonify({
-        'conversation_count': len(conversations),
-        'total_prompt_tokens': total_prompt_tokens,
-        'total_completion_tokens': total_completion_tokens,
-        'total_tokens': total_tokens,
-        'total_cost': total_cost,
-        'usage_by_model': usage_by_model
+        'users': users_stats,
+        'summary': {
+            'total_users': len(users_stats),
+            'total_system_cost': total_system_cost,
+            'total_system_tokens': total_system_tokens
+        }
     }), 200

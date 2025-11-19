@@ -17,6 +17,11 @@ export interface AIMessage {
   completion_tokens?: number;
   total_tokens?: number;
   created_at: string;
+  model_name?: string;
+  pricing?: {
+    input: number;
+    output: number;
+  };
 }
 
 export interface AIConversation {
@@ -115,5 +120,30 @@ export async function sendMessage(
 
 export async function getUsageStats(): Promise<UsageStats> {
   const response = await apiClient.get('/api/ai/usage');
+  return response.data;
+}
+
+export interface UserAIStats {
+  user_id: number;
+  email: string;
+  name: string;
+  conversation_count: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+}
+
+export interface AllUsersUsageStats {
+  users: UserAIStats[];
+  summary: {
+    total_users: number;
+    total_system_cost: number;
+    total_system_tokens: number;
+  };
+}
+
+export async function getAllUsersUsage(): Promise<AllUsersUsageStats> {
+  const response = await apiClient.get('/api/ai/admin/usage');
   return response.data;
 }
