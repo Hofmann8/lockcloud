@@ -107,6 +107,7 @@ def create_app(config_name=None):
         from auth.models import User, VerificationCode
         from files.models import File, TagPreset
         from logs.models import FileLog
+        from ai.models import AIConversation, AIMessage
     
     # Register error handlers
     register_error_handlers(app)
@@ -117,11 +118,13 @@ def create_app(config_name=None):
     from logs.routes import logs_bp
     from tag_presets.routes import tag_presets_bp
     from admin.routes import admin_bp
+    from ai.routes import ai_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(files_bp, url_prefix='/api/files')
     app.register_blueprint(logs_bp, url_prefix='/api/logs')
     app.register_blueprint(tag_presets_bp, url_prefix='/api/tag-presets')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(ai_bp, url_prefix='/api/ai')
     
     # Health check endpoint
     @app.route('/')

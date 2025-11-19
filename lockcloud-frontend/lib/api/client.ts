@@ -5,7 +5,7 @@ import { showToast, toastMessages } from '@/lib/utils/toast';
 // Create axios instance with base configuration
 const apiClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
-  timeout: 30000,
+  timeout: 0, // No timeout - allow infinite wait for AI responses
   headers: {
     'Content-Type': 'application/json',
   },

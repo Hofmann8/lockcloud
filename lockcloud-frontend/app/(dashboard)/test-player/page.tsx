@@ -1,10 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { DanceVideoPlayer } from '@/components/DanceVideoPlayer';
-import { SimpleVideoPlayer } from '@/components/SimpleVideoPlayer';
+import dynamic from 'next/dynamic';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
+
+// 动态导入播放器组件，禁用 SSR
+const DanceVideoPlayer = dynamic(
+  () => import('@/components/DanceVideoPlayer').then(mod => ({ default: mod.DanceVideoPlayer })),
+  { ssr: false }
+);
+
+const SimpleVideoPlayer = dynamic(
+  () => import('@/components/SimpleVideoPlayer').then(mod => ({ default: mod.SimpleVideoPlayer })),
+  { ssr: false }
+);
 
 /**
  * 视频播放器测试页面
