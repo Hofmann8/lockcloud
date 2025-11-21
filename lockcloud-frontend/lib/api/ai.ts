@@ -127,7 +127,6 @@ export interface UserAIStats {
   user_id: number;
   email: string;
   name: string;
-  conversation_count: number;
   total_prompt_tokens: number;
   total_completion_tokens: number;
   total_tokens: number;
@@ -137,7 +136,6 @@ export interface UserAIStats {
 export interface AllUsersUsageStats {
   users: UserAIStats[];
   summary: {
-    total_users: number;
     total_system_cost: number;
     total_system_tokens: number;
   };
@@ -145,5 +143,34 @@ export interface AllUsersUsageStats {
 
 export async function getAllUsersUsage(): Promise<AllUsersUsageStats> {
   const response = await apiClient.get('/api/ai/admin/usage');
+  return response.data;
+}
+
+export interface QueueStatus {
+  queue_size: number;
+  processing_count: number;
+  total_active: number;
+  queue_items: Array<{
+    request_id: string;
+    user_id: number;
+    user_name?: string;
+    user_email?: string;
+    created_at: string;
+    status: string;
+  }>;
+  processing_items: Array<{
+    request_id: string;
+    user_id: number;
+    user_name?: string;
+    user_email?: string;
+    created_at: string;
+    started_at: string | null;
+    status: string;
+  }>;
+  is_worker_alive: boolean;
+}
+
+export async function getQueueStatus(): Promise<QueueStatus> {
+  const response = await apiClient.get('/api/ai/queue/status');
   return response.data;
 }

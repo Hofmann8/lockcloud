@@ -5,7 +5,7 @@ import { Modal } from './Modal';
 import { Button } from './Button';
 
 const ANNOUNCEMENT_KEY = 'lockcloud_announcement_seen';
-const ANNOUNCEMENT_VERSION = 'v0.4.7'; // 更新此版本号可以让所有用户重新看到公告
+const ANNOUNCEMENT_VERSION = 'v0.5.0'; // 更新此版本号可以让所有用户重新看到公告
 const NEVER_SHOW_KEY = 'lockcloud_announcement_never_show';
 
 export function FirstLoginAnnouncement() {
@@ -46,7 +46,7 @@ export function FirstLoginAnnouncement() {
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="🎉 系统更新 v0.4.7"
+      title="🎉 系统更新 v0.5.0"
       size="lg"
       closeOnBackdrop={false}
     >
@@ -69,48 +69,51 @@ export function FirstLoginAnnouncement() {
             本次更新内容
           </h3>
           
-          <div className="text-sm text-gray-700 space-y-2.5 leading-relaxed">
+          <div className="text-sm text-gray-700 space-y-2 leading-relaxed">
             <div className="bg-white rounded-lg p-3 border border-blue-100">
-              <p className="font-medium text-red-600 mb-2">🚫 功能移除</p>
-              <ul className="list-disc list-inside space-y-1 text-gray-600 ml-2">
-                <li>移除了鼠标 hover 的视频预览功能（流量消耗过大，待优化后再添加）</li>
-              </ul>
-            </div>
-
-            <div className="bg-white rounded-lg p-3 border border-blue-100">
-              <p className="font-medium text-green-600 mb-2">✨ 功能优化</p>
-              <ul className="list-disc list-inside space-y-1 text-gray-600 ml-2">
-                <li>彻底重做了视频播放器，优化了用户体验</li>
-                <li>优化了手机用户的下载功能 <span className="text-xs text-gray-500">(来自豆子的 issue)</span></li>
-                <li>优化了上传功能：
-                  <ul className="list-circle list-inside ml-4 mt-1 space-y-0.5">
-                    <li>单个任务可上传多个文件</li>
-                    <li>多个任务同时上传会自动进入队列</li>
-                  </ul>
-                  <span className="text-xs text-gray-500">(来自小雪的建议)</span>
-                </li>
-              </ul>
-            </div>
-
-            <div className="bg-white rounded-lg p-3 border border-blue-100">
-              <p className="font-medium text-blue-600 mb-2">📋 合规更新</p>
-              <ul className="list-disc list-inside space-y-1 text-gray-600 ml-2">
-                <li>根据国家工信部相关管理条例，在系统下方悬挂了备案号</li>
+              <p className="font-medium text-green-600 mb-1.5">✨ 新增功能</p>
+              <ul className="list-disc list-inside space-y-0.5 text-gray-600 ml-2 text-xs">
+                <li>新增 <span className="font-semibold text-blue-600">LockAI 板块</span>，提供 AI 学习和测试功能</li>
+                <li>已上传文件支持编辑和移动操作</li>
               </ul>
             </div>
           </div>
         </div>
 
-        {/* 使用范围说明 */}
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-2">
-          <h3 className="font-semibold text-orange-800 flex items-center gap-2 text-sm">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+        {/* LockAI 使用须知 - 重点提示 */}
+        <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-300 rounded-lg p-4 space-y-3">
+          <h3 className="font-bold text-red-700 flex items-center gap-2">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
-            温馨提示
+            LockAI 板块使用须知
           </h3>
+          
+          <div className="space-y-2 text-xs text-gray-700 leading-relaxed">
+            <div className="bg-white/80 rounded p-2.5 border border-red-200">
+              <p className="font-semibold text-red-600 mb-1.5">⚠️ 法律合规声明</p>
+              <ul className="space-y-1 text-gray-700">
+                <li>• 使用 LockAI 板块时<span className="font-semibold text-red-600">必须符合当地相关法律法规</span></li>
+                <li>• 平台的人工智能服务<span className="font-semibold">仅用于合法逆向测试和 AI 学习使用</span></li>
+                <li>• <span className="font-semibold text-red-600">请勿上传任何涉密、敏感或违法内容</span>至 LockAI 板块</li>
+              </ul>
+            </div>
+
+            <div className="bg-white/80 rounded p-2.5 border border-orange-200">
+              <p className="font-semibold text-orange-600 mb-1.5">💡 重要提示</p>
+              <ul className="space-y-1 text-gray-700">
+                <li>• 扣费为<span className="font-semibold">模拟扣费</span>，不会产生实际消费</li>
+                <li>• 本平台<span className="font-semibold">没有任何经营性质</span>，仅供学习交流</li>
+                <li>• 由于 AI 约束的特殊性，<span className="font-semibold text-orange-600">使用和测试过程的风险由用户自行承担</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* 使用范围说明 - 压缩版 */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5">
           <p className="text-xs text-gray-700 leading-relaxed">
-            本系统<span className="font-semibold text-orange-600">仅供 DFM 街舞社 Funk&Love Locking 舞队内部使用</span>。请合理使用存储空间，共同维护良好的使用环境。
+            <span className="font-semibold text-blue-600">💙 温馨提示：</span>本系统仅供 DFM 街舞社 Funk&Love Locking 舞队内部使用，请合理使用存储空间。
           </p>
         </div>
 
@@ -131,7 +134,7 @@ export function FirstLoginAnnouncement() {
         {/* 签名和日期 */}
         <div className="text-right text-xs text-gray-500 pt-2 border-t border-gray-200">
           <p className="font-medium text-blue-500">Hofmann</p>
-          <p>2025 年 11 月 18 日</p>
+          <p>2025 年 11 月 19 日</p>
         </div>
 
         {/* 确认按钮 */}

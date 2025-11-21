@@ -11,6 +11,7 @@ class OperationType(enum.Enum):
     UPLOAD = 'upload'
     DELETE = 'delete'
     ACCESS = 'access'
+    UPDATE = 'update'
 
 
 class FileLog(db.Model):

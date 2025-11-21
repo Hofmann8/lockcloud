@@ -1,9 +1,11 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from ai.models import AIConversation, AIMessage
 from ai.service import AIService
+from ai.queue_manager import queue_manager
 from exceptions import LockCloudException
+import uuid
 
 ai_bp = Blueprint('ai', __name__)
 ai_service = AIService()
@@ -142,7 +144,7 @@ def update_conversation_title(conversation_id):
 @ai_bp.route('/chat', methods=['POST'])
 @jwt_required()
 def chat():
-    """Send a message and get AI response"""
+    """Send a message and get AI response (with queue support)"""
     import logging
     logger = logging.getLogger(__name__)
     
@@ -152,8 +154,9 @@ def chat():
     conversation_id = data.get('conversation_id')
     message = data.get('message')
     model = data.get('model', 'gpt-5.1-thinking')
+    use_queue = data.get('use_queue', True)  # 默认使用队列
     
-    logger.info(f'AI chat request - User: {user_id}, Model: {model}')
+    logger.info(f'AI chat request - User: {user_id}, Model: {model}, UseQueue: {use_queue}')
     
     if not message:
         raise LockCloudException('AI_002', '消息内容不能为空', 400)
@@ -177,7 +180,18 @@ def chat():
         ).first()
         
         if not conversation:
-            raise LockCloudException('AI_001', '对话不存在', 404)
+            # 对话不存在，创建新对话
+            logger.warning(f'Conversation {conversation_id} not found for user {user_id}, creating new one')
+            conversation = AIConversation(user_id=user_id, model=model)
+            db.session.add(conversation)
+            try:
+                db.session.flush()
+            except Exception as e:
+                db.session.rollback()
+                if 'database is locked' in str(e).lower():
+                    raise LockCloudException('AI_004', '数据库繁忙，请稍后重试', 503)
+                raise
+            conversation_id = conversation.id
     
     # Save user message
     user_message = AIMessage(
@@ -187,91 +201,216 @@ def chat():
     )
     db.session.add(user_message)
     
+    # 先提交用户消息
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        if 'database is locked' in str(e).lower():
+            raise LockCloudException('AI_004', '数据库繁忙，请稍后重试', 503)
+        raise
+    
     # Get conversation history
     history = AIMessage.query.filter_by(conversation_id=conversation_id)\
         .order_by(AIMessage.created_at.asc())\
         .all()
     
     messages = [{'role': msg.role, 'content': msg.content} for msg in history]
-    messages.append({'role': 'user', 'content': message})
     
-    # Get AI response
-    try:
-        logger.info(f'Sending request to AI service - Conversation: {conversation_id}')
-        response_data = ai_service.chat(messages, model)
-        logger.info(f'AI response received - Conversation: {conversation_id}')
-        
-        # Save assistant message with usage info
-        usage = response_data.get('usage', {})
-        assistant_message = AIMessage(
-            conversation_id=conversation_id,
-            role='assistant',
-            content=response_data['content'],
-            prompt_tokens=usage.get('prompt_tokens', 0),
-            completion_tokens=usage.get('completion_tokens', 0),
-            total_tokens=usage.get('total_tokens', 0)
-        )
-        db.session.add(assistant_message)
-        
-        # Update user message with 0 tokens
-        user_message.prompt_tokens = 0
-        user_message.completion_tokens = 0
-        user_message.total_tokens = 0
-        
-        # Update user's AI usage statistics
-        from auth.models import User
-        user = User.query.get(user_id)
-        if user:
-            prompt_tokens = usage.get('prompt_tokens', 0)
-            completion_tokens = usage.get('completion_tokens', 0)
-            total_tokens = usage.get('total_tokens', 0)
-            
-            # Calculate cost
-            pricing = response_data.get('pricing', {'input': 0, 'output': 0})
-            input_cost = (prompt_tokens / 1000000) * pricing['input']
-            output_cost = (completion_tokens / 1000000) * pricing['output']
-            message_cost = input_cost + output_cost
-            
-            # Update user statistics
-            user.ai_total_prompt_tokens = (user.ai_total_prompt_tokens or 0) + prompt_tokens
-            user.ai_total_completion_tokens = (user.ai_total_completion_tokens or 0) + completion_tokens
-            user.ai_total_tokens = (user.ai_total_tokens or 0) + total_tokens
-            user.ai_total_cost = (user.ai_total_cost or 0.0) + message_cost
-            
-            # Check if this is the first message in the conversation (new conversation)
-            # Count messages before adding the new one
-            existing_messages = AIMessage.query.filter_by(conversation_id=conversation_id).count()
-            if existing_messages == 0:  # This is the first message pair (user + assistant)
-                user.ai_conversation_count = (user.ai_conversation_count or 0) + 1
-        
+    # 使用队列处理请求
+    if use_queue:
         try:
-            db.session.commit()
+            request_id = str(uuid.uuid4())
+            logger.info(f'Adding request to queue - RequestID: {request_id}')
+            
+            # 定义 AI 请求处理函数（在工作线程中执行）
+            def process_ai_request():
+                """处理 AI 请求的回调函数"""
+                try:
+                    logger.info(f'Processing AI request - Conversation: {conversation_id}')
+                    response_data = ai_service.chat(messages, model)
+                    logger.info(f'AI response received - Conversation: {conversation_id}')
+                    
+                    # 在工作线程中，需要创建新的会话
+                    # 使用 scoped_session 确保线程安全
+                    from sqlalchemy.orm import scoped_session, sessionmaker
+                    from app import db as db_module
+                    
+                    # 创建线程本地会话
+                    session_factory = sessionmaker(bind=db_module.engine)
+                    Session = scoped_session(session_factory)
+                    session = Session()
+                    
+                    try:
+                        # Save assistant message with usage info
+                        usage = response_data.get('usage', {})
+                        assistant_message = AIMessage(
+                            conversation_id=conversation_id,
+                            role='assistant',
+                            content=response_data['content'],
+                            prompt_tokens=usage.get('prompt_tokens', 0),
+                            completion_tokens=usage.get('completion_tokens', 0),
+                            total_tokens=usage.get('total_tokens', 0)
+                        )
+                        session.add(assistant_message)
+                        
+                        # Update user message with 0 tokens
+                        user_msg = session.query(AIMessage).filter_by(
+                            conversation_id=conversation_id,
+                            role='user'
+                        ).order_by(AIMessage.created_at.desc()).first()
+                        
+                        if user_msg:
+                            user_msg.prompt_tokens = 0
+                            user_msg.completion_tokens = 0
+                            user_msg.total_tokens = 0
+                        
+                        # Update user's AI usage statistics
+                        from auth.models import User
+                        user = session.query(User).get(user_id)
+                        if user:
+                            prompt_tokens = usage.get('prompt_tokens', 0)
+                            completion_tokens = usage.get('completion_tokens', 0)
+                            total_tokens = usage.get('total_tokens', 0)
+                            
+                            # Calculate cost
+                            pricing = response_data.get('pricing', {'input': 0, 'output': 0})
+                            input_cost = (prompt_tokens / 1000000) * pricing['input']
+                            output_cost = (completion_tokens / 1000000) * pricing['output']
+                            message_cost = input_cost + output_cost
+                            
+                            # Update user statistics
+                            user.ai_total_prompt_tokens = (user.ai_total_prompt_tokens or 0) + prompt_tokens
+                            user.ai_total_completion_tokens = (user.ai_total_completion_tokens or 0) + completion_tokens
+                            user.ai_total_tokens = (user.ai_total_tokens or 0) + total_tokens
+                            user.ai_total_cost = (user.ai_total_cost or 0.0) + message_cost
+                        
+                        # 提交事务
+                        session.commit()
+                        
+                        # 获取消息字典（在会话关闭前）
+                        message_dict = assistant_message.to_dict()
+                        
+                        return {
+                            'conversation_id': conversation_id,
+                            'message': message_dict,
+                            'model_name': response_data.get('model', model),
+                            'usage': usage,
+                            'pricing': response_data.get('pricing', {'input': 0, 'output': 0})
+                        }
+                        
+                    except Exception as e:
+                        session.rollback()
+                        raise e
+                    finally:
+                        session.close()
+                        Session.remove()
+                    
+                except Exception as e:
+                    raise e
+            
+            # 添加到队列，传递应用上下文
+            app_context = current_app.app_context()
+            queue_manager.add_request(request_id, user_id, process_ai_request, app_context)
+            
+            # 等待完成
+            result = queue_manager.wait_for_completion(request_id, timeout=300)
+            
+            if result['status'] == 'failed':
+                error_msg = result.get('error', 'Unknown error')
+                logger.error(f'Queue request failed - User: {user_id}, Error: {error_msg}')
+                
+                # Return appropriate status code based on error type
+                if 'rate_limit' in error_msg.lower() or 'Rate limit reached' in error_msg:
+                    raise LockCloudException('AI_003', error_msg, 429)
+                elif '503' in error_msg or 'service_unavailable' in error_msg.lower():
+                    raise LockCloudException('AI_003', error_msg, 503)
+                else:
+                    raise LockCloudException('AI_003', f'AI 服务错误: {error_msg}', 500)
+            
+            return jsonify(result['result']), 200
+            
+        except TimeoutError:
+            raise LockCloudException('AI_003', '请求超时，请稍后重试', 504)
+        except LockCloudException:
+            raise
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f'Queue error - User: {user_id}, Error: {error_msg}')
+            raise LockCloudException('AI_003', f'队列处理错误: {error_msg}', 500)
+    
+    # 不使用队列，直接处理
+    else:
+        try:
+            logger.info(f'Processing AI request directly - Conversation: {conversation_id}')
+            response_data = ai_service.chat(messages, model)
+            logger.info(f'AI response received - Conversation: {conversation_id}')
+            
+            # Save assistant message with usage info
+            usage = response_data.get('usage', {})
+            assistant_message = AIMessage(
+                conversation_id=conversation_id,
+                role='assistant',
+                content=response_data['content'],
+                prompt_tokens=usage.get('prompt_tokens', 0),
+                completion_tokens=usage.get('completion_tokens', 0),
+                total_tokens=usage.get('total_tokens', 0)
+            )
+            db.session.add(assistant_message)
+            
+            # Update user message with 0 tokens
+            user_message.prompt_tokens = 0
+            user_message.completion_tokens = 0
+            user_message.total_tokens = 0
+            
+            # Update user's AI usage statistics
+            from auth.models import User
+            user = User.query.get(user_id)
+            if user:
+                prompt_tokens = usage.get('prompt_tokens', 0)
+                completion_tokens = usage.get('completion_tokens', 0)
+                total_tokens = usage.get('total_tokens', 0)
+                
+                # Calculate cost
+                pricing = response_data.get('pricing', {'input': 0, 'output': 0})
+                input_cost = (prompt_tokens / 1000000) * pricing['input']
+                output_cost = (completion_tokens / 1000000) * pricing['output']
+                message_cost = input_cost + output_cost
+                
+                # Update user statistics
+                user.ai_total_prompt_tokens = (user.ai_total_prompt_tokens or 0) + prompt_tokens
+                user.ai_total_completion_tokens = (user.ai_total_completion_tokens or 0) + completion_tokens
+                user.ai_total_tokens = (user.ai_total_tokens or 0) + total_tokens
+                user.ai_total_cost = (user.ai_total_cost or 0.0) + message_cost
+            
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                if 'database is locked' in str(e).lower():
+                    raise LockCloudException('AI_004', '数据库繁忙，请稍后重试', 503)
+                raise
+            
+            return jsonify({
+                'conversation_id': conversation_id,
+                'message': assistant_message.to_dict(),
+                'model_name': response_data.get('model', model),
+                'usage': usage,
+                'pricing': response_data.get('pricing', {'input': 0, 'output': 0})
+            }), 200
+            
         except Exception as e:
             db.session.rollback()
-            if 'database is locked' in str(e).lower():
-                raise LockCloudException('AI_004', '数据库繁忙，请稍后重试', 503)
-            raise
-        
-        return jsonify({
-            'conversation_id': conversation_id,
-            'message': assistant_message.to_dict(),
-            'model_name': response_data.get('model', model),
-            'usage': usage,
-            'pricing': response_data.get('pricing', {'input': 0, 'output': 0})
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        error_msg = str(e)
-        logger.error(f'AI service error - User: {user_id}, Error: {error_msg}')
-        
-        # Return appropriate status code based on error type
-        if 'rate_limit' in error_msg.lower() or 'Rate limit reached' in error_msg:
-            raise LockCloudException('AI_003', error_msg, 429)
-        elif '503' in error_msg or 'service_unavailable' in error_msg.lower():
-            raise LockCloudException('AI_003', error_msg, 503)
-        else:
-            raise LockCloudException('AI_003', f'AI 服务错误: {error_msg}', 500)
+            error_msg = str(e)
+            logger.error(f'AI service error - User: {user_id}, Error: {error_msg}')
+            
+            # Return appropriate status code based on error type
+            if 'rate_limit' in error_msg.lower() or 'Rate limit reached' in error_msg:
+                raise LockCloudException('AI_003', error_msg, 429)
+            elif '503' in error_msg or 'service_unavailable' in error_msg.lower():
+                raise LockCloudException('AI_003', error_msg, 503)
+            else:
+                raise LockCloudException('AI_003', f'AI 服务错误: {error_msg}', 500)
 
 
 @ai_bp.route('/usage', methods=['GET'])
@@ -329,13 +468,78 @@ def get_usage():
     
     # Return user's overall statistics from user table
     return jsonify({
-        'conversation_count': user.ai_conversation_count or 0,
         'total_prompt_tokens': user.ai_total_prompt_tokens or 0,
         'total_completion_tokens': user.ai_total_completion_tokens or 0,
         'total_tokens': user.ai_total_tokens or 0,
         'total_cost': user.ai_total_cost or 0.0,
         'usage_by_model': usage_by_model
     }), 200
+
+
+@ai_bp.route('/queue/status', methods=['GET'])
+@jwt_required()
+def get_queue_status():
+    """Get current queue status with user information"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    from auth.models import User
+    
+    status = queue_manager.get_queue_status()
+    
+    # 获取所有涉及的用户ID
+    user_ids = set()
+    for item in status['queue_items']:
+        user_ids.add(item['user_id'])
+    for item in status['processing_items']:
+        user_ids.add(item['user_id'])
+    
+    logger.info(f'Queue status - User IDs: {user_ids}')
+    
+    # 查询用户信息（确保 user_id 是整数）
+    users = {}
+    if user_ids:
+        # 转换为整数集合
+        int_user_ids = set()
+        for uid in user_ids:
+            try:
+                int_user_ids.add(int(uid))
+            except (ValueError, TypeError):
+                logger.warning(f'Invalid user_id: {uid}')
+        
+        logger.info(f'Querying users with IDs: {int_user_ids}')
+        user_list = User.query.filter(User.id.in_(int_user_ids)).all()
+        logger.info(f'Found {len(user_list)} users in database')
+        for user in user_list:
+            # 同时用整数和字符串作为键，兼容两种情况
+            users[user.id] = {
+                'id': user.id,
+                'name': user.name,
+                'email': user.email
+            }
+            users[str(user.id)] = users[user.id]  # 字符串键
+            logger.info(f'User {user.id}: name={user.name}, email={user.email}')
+    
+    # 添加用户信息到队列项
+    for item in status['queue_items']:
+        user_info = users.get(item['user_id'])
+        if user_info:
+            item['user_name'] = user_info['name']
+            item['user_email'] = user_info['email']
+            logger.info(f'Added user info to queue item: {item["user_id"]} -> {user_info["name"]}')
+        else:
+            logger.warning(f'User {item["user_id"]} not found in database')
+    
+    for item in status['processing_items']:
+        user_info = users.get(item['user_id'])
+        if user_info:
+            item['user_name'] = user_info['name']
+            item['user_email'] = user_info['email']
+            logger.info(f'Added user info to processing item: {item["user_id"]} -> {user_info["name"]}')
+        else:
+            logger.warning(f'User {item["user_id"]} not found in database')
+    
+    return jsonify(status), 200
 
 
 @ai_bp.route('/admin/usage', methods=['GET'])
@@ -359,12 +563,12 @@ def get_all_users_usage():
     total_system_tokens = 0
     
     for user in users:
-        if user.ai_conversation_count and user.ai_conversation_count > 0:
+        # Only include users who have used AI (have tokens or cost)
+        if (user.ai_total_tokens and user.ai_total_tokens > 0) or (user.ai_total_cost and user.ai_total_cost > 0):
             users_stats.append({
                 'user_id': user.id,
                 'email': user.email,
                 'name': user.name,
-                'conversation_count': user.ai_conversation_count or 0,
                 'total_prompt_tokens': user.ai_total_prompt_tokens or 0,
                 'total_completion_tokens': user.ai_total_completion_tokens or 0,
                 'total_tokens': user.ai_total_tokens or 0,
@@ -379,7 +583,6 @@ def get_all_users_usage():
     return jsonify({
         'users': users_stats,
         'summary': {
-            'total_users': len(users_stats),
             'total_system_cost': total_system_cost,
             'total_system_tokens': total_system_tokens
         }

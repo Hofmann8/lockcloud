@@ -52,21 +52,7 @@ export default function AdminAIUsagePage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">活跃用户</p>
-              <p className="text-3xl font-bold text-gray-900">{usageData?.summary.total_users || 0}</p>
-            </div>
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            </div>
-          </div>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -106,7 +92,6 @@ export default function AdminAIUsagePage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">用户</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">对话数</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">输入 Token</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">输出 Token</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">总 Token</th>
@@ -122,7 +107,6 @@ export default function AdminAIUsagePage() {
                       <div className="text-sm text-gray-500">{user.email}</div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.conversation_count}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-blue-600">{user.total_prompt_tokens.toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-green-600">{user.total_completion_tokens.toLocaleString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">{user.total_tokens.toLocaleString()}</td>

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as aiApi from '@/lib/api/ai';
 import toast from 'react-hot-toast';
 import MarkdownMessage from '@/components/MarkdownMessage';
+import { useAuthStore } from '@/stores/authStore';
 
 export default function AIPage() {
   const queryClient = useQueryClient();
@@ -51,6 +52,20 @@ export default function AIPage() {
     retry: false
   });
 
+  const { data: queueStatus } = useQuery({
+    queryKey: ['ai-queue-status'],
+    queryFn: async () => {
+      const status = await aiApi.getQueueStatus();
+      console.log('Queue status received:', status);
+      return status;
+    },
+    refetchInterval: 2000, // 每2秒刷新一次队列状态
+    retry: false
+  });
+
+  // 从 authStore 获取当前用户信息
+  const { user: currentUser } = useAuthStore();
+
   const sendMessageMutation = useMutation({
     mutationFn: ({ message, model, conversationId, signal }: {
       message: string;
@@ -83,6 +98,8 @@ export default function AIPage() {
       
       if (errorMessage.includes('速率限制') || errorMessage.includes('rate_limit') || errorMessage.includes('Rate limit')) {
         toast.error('⚠️ API 速率限制：请等待1-2分钟后重试，或切换到其他节点', { duration: 6000 });
+      } else if (errorMessage.includes('502') || errorMessage.includes('Bad Gateway')) {
+        toast.error('🔧 AI 服务网关错误：上游服务暂时不可用，请稍后重试', { duration: 5000 });
       } else if (errorMessage.includes('服务暂时不可用') || errorMessage.includes('503')) {
         toast.error('API 服务繁忙，请稍后重试或切换节点');
       } else if (errorMessage.includes('数据库繁忙')) {
@@ -135,7 +152,7 @@ export default function AIPage() {
       await sendMessageMutation.mutateAsync({
         message: messageToSend,
         model: selectedModel,
-        conversationId: currentConversationId,
+        conversationId: currentConversationId || undefined,
         signal: abortControllerRef.current?.signal
       });
     } catch (error: unknown) {
@@ -235,6 +252,8 @@ export default function AIPage() {
   const [editingTitle, setEditingTitle] = useState('');
   const [deletingConversationId, setDeletingConversationId] = useState<number | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isQueuePanelOpen, setIsQueuePanelOpen] = useState(false);
+  const [isMobileQueueOpen, setIsMobileQueueOpen] = useState(false);
 
   const handleStartDelete = (conversationId: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -288,6 +307,30 @@ export default function AIPage() {
   const handleCancelRename = () => {
     setEditingConversationId(null);
     setEditingTitle('');
+  };
+
+  // 获取用户显示名称
+  const getUserDisplayName = (userId: number | string, userName?: string) => {
+    if (currentUser && Number(userId) === currentUser.id) {
+      return '你';
+    }
+    return userName || `用户 #${userId}`;
+  };
+
+  // 检查是否是当前用户
+  const isCurrentUser = (userId: number | string) => {
+    return currentUser && Number(userId) === currentUser.id;
+  };
+
+  // 获取用户头像字母
+  const getUserAvatar = (userName?: string, userEmail?: string) => {
+    if (userName) {
+      return userName.charAt(0).toUpperCase();
+    }
+    if (userEmail) {
+      return userEmail.charAt(0).toUpperCase();
+    }
+    return '?';
   };
 
   return (
@@ -363,17 +406,11 @@ export default function AIPage() {
           <div className="p-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-gray-700 mb-3">使用统计</h3>
             <div className="space-y-2 text-xs">
-              <div className="flex justify-between text-gray-600">
-                <span>对话数:</span>
-                <span className="font-semibold">{usage.conversation_count}</span>
-              </div>
-              <div className="pt-2 border-t border-gray-200">
-                <div className="text-gray-500 mb-1">Token 用量</div>
-                <div className="space-y-1 text-gray-600">
-                  <div className="flex justify-between"><span>输入:</span><span className="font-mono text-blue-600">{usage.total_prompt_tokens.toLocaleString()}</span></div>
-                  <div className="flex justify-between"><span>输出:</span><span className="font-mono text-green-600">{usage.total_completion_tokens.toLocaleString()}</span></div>
-                  <div className="flex justify-between font-semibold"><span>总计:</span><span className="font-mono text-gray-700">{usage.total_tokens.toLocaleString()}</span></div>
-                </div>
+              <div className="text-gray-500 mb-1">Token 用量</div>
+              <div className="space-y-1 text-gray-600">
+                <div className="flex justify-between"><span>输入:</span><span className="font-mono text-blue-600">{usage.total_prompt_tokens.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>输出:</span><span className="font-mono text-green-600">{usage.total_completion_tokens.toLocaleString()}</span></div>
+                <div className="flex justify-between font-semibold"><span>总计:</span><span className="font-mono text-gray-700">{usage.total_tokens.toLocaleString()}</span></div>
               </div>
               {usage.total_cost > 0 && (
                 <div className="pt-2 border-t border-gray-200">
@@ -448,9 +485,181 @@ export default function AIPage() {
             </svg>
           </button>
           <h1 className="ml-3 text-lg font-semibold text-gray-900">LockAI</h1>
+          
+          {/* Queue Status Badge - Mobile */}
+          <div className="ml-auto relative">
+            <button
+              onClick={() => setIsMobileQueueOpen(!isMobileQueueOpen)}
+              className={`flex items-center space-x-2 px-3 py-1 rounded-full transition-colors ${
+                queueStatus && queueStatus.total_active > 0
+                  ? 'bg-orange-50 border border-orange-200 hover:bg-orange-100'
+                  : 'bg-green-50 border border-green-200 hover:bg-green-100'
+              }`}
+            >
+              <div className={`w-2 h-2 rounded-full ${
+                queueStatus && queueStatus.total_active > 0
+                  ? 'bg-orange-500 animate-pulse'
+                  : 'bg-green-500'
+              }`}></div>
+              <span className={`text-xs font-medium ${
+                queueStatus && queueStatus.total_active > 0
+                  ? 'text-orange-700'
+                  : 'text-green-700'
+              }`}>
+                {queueStatus && queueStatus.total_active > 0 ? `队列: ${queueStatus.total_active}` : '空闲'}
+              </span>
+            </button>
+
+            {/* Mobile Queue Panel */}
+            {isMobileQueueOpen && (
+              <>
+                {/* Backdrop */}
+                <div 
+                  className="fixed inset-0 bg-black/30 z-40 animate-fade-in"
+                  onClick={() => setIsMobileQueueOpen(false)}
+                  style={{
+                    animation: 'fadeIn 200ms ease-out'
+                  }}
+                />
+                
+                {/* Panel */}
+                <div 
+                  className="fixed top-16 left-4 right-4 bg-white rounded-lg shadow-2xl border border-gray-200 z-50 max-h-[70vh] overflow-hidden"
+                  style={{
+                    animation: 'slideDown 300ms cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
+                >
+                  <div className="p-4 bg-gradient-to-r from-orange-50 to-white border-b border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <h3 className="font-semibold text-gray-900">请求队列</h3>
+                      </div>
+                      <button
+                        onClick={() => setIsMobileQueueOpen(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-y-auto max-h-[calc(70vh-80px)] custom-scrollbar">
+                    {queueStatus && queueStatus.total_active > 0 ? (
+                      <div className="p-4 space-y-3">
+                        {/* Processing Items */}
+                        {queueStatus.processing_items.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-500 mb-2 flex items-center">
+                              <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                              处理中
+                            </h4>
+                            <div className="space-y-2">
+                              {queueStatus.processing_items.map((item) => (
+                                <div
+                                  key={item.request_id}
+                                  className={`rounded-lg p-3 border ${
+                                    isCurrentUser(item.user_id)
+                                      ? 'bg-orange-50 border-orange-300'
+                                      : 'bg-green-50 border-green-200'
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-2">
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-sm ${
+                                      isCurrentUser(item.user_id) ? 'bg-orange-500' : 'bg-green-500'
+                                    }`}>
+                                      {getUserAvatar(item.user_name, item.user_email)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className={`text-sm font-medium ${
+                                        isCurrentUser(item.user_id) ? 'text-orange-700' : 'text-green-700'
+                                      }`}>
+                                        {getUserDisplayName(item.user_id, item.user_name)}
+                                      </div>
+                                      <div className="text-xs text-gray-500">正在处理中...</div>
+                                    </div>
+                                    <svg className="w-4 h-4 text-green-600 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Queue Items */}
+                        {queueStatus.queue_items.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-500 mb-2 flex items-center justify-between">
+                              <div className="flex items-center">
+                                <div className="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
+                                队列中
+                              </div>
+                              <span className="text-orange-600">{queueStatus.queue_items.length} 人</span>
+                            </h4>
+                            <div className="space-y-2">
+                              {queueStatus.queue_items.map((item, index) => (
+                                <div
+                                  key={item.request_id}
+                                  className={`rounded-lg p-3 border ${
+                                    isCurrentUser(item.user_id)
+                                      ? 'bg-orange-50 border-orange-300'
+                                      : 'bg-gray-50 border-gray-200'
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-2">
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                      isCurrentUser(item.user_id)
+                                        ? 'bg-orange-500 text-white'
+                                        : 'bg-gray-300 text-gray-700'
+                                    }`}>
+                                      {index + 1}
+                                    </div>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-sm ${
+                                      isCurrentUser(item.user_id) ? 'bg-orange-500' : 'bg-gray-400'
+                                    }`}>
+                                      {getUserAvatar(item.user_name, item.user_email)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className={`text-sm font-medium ${
+                                        isCurrentUser(item.user_id) ? 'text-orange-700' : 'text-gray-700'
+                                      }`}>
+                                        {getUserDisplayName(item.user_id, item.user_name)}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        {new Date(item.created_at).toLocaleTimeString()}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-6 text-center">
+                        <svg className="w-12 h-12 text-green-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p className="text-sm text-gray-600">当前无排队</p>
+                        <p className="text-xs text-gray-500 mt-1">系统运行正常</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+        <div className="flex-1 flex overflow-hidden relative">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 custom-scrollbar">
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center text-gray-400">
               <div className="text-center">
@@ -495,37 +704,283 @@ export default function AIPage() {
                   </div>
                 </div>
               ))}
-              {isLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-white border border-gray-200 rounded-lg px-5 py-4 shadow-sm">
-                    <div className="flex items-start space-x-4">
-                      <div className="shrink-0 mt-1">
-                        <svg className="w-8 h-8 text-orange-500 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <span className="text-sm font-medium text-gray-700">小锁老师正在让模型努力干活</span>
-                          <div className="flex space-x-1">
-                            <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                            <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                            <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              {(() => {
+                // 检查当前用户是否在队列中
+                const userInQueue = queueStatus?.queue_items.find(item => isCurrentUser(item.user_id));
+                const userProcessing = queueStatus?.processing_items.find(item => isCurrentUser(item.user_id));
+                
+                // 检查用户是否在查看正在处理/排队的对话
+                // 逻辑：如果用户有活动请求，但当前对话的最后一条消息不是用户发的（是模型发的或没有消息），说明在看别的对话
+                const hasActiveRequest = userInQueue || userProcessing;
+                const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+                const isViewingDifferentConversation = hasActiveRequest && lastMessage && lastMessage.role !== 'user';
+                
+                // 如果用户有活动请求但不在当前对话中，显示提示
+                if (isViewingDifferentConversation) {
+                  // 找到最新的对话（用户最后发送请求的对话）
+                  const latestConversation = conversations.length > 0 ? conversations[0] : null;
+                  
+                  return (
+                    <div className="flex justify-start">
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg px-5 py-4 shadow-sm">
+                        <div className="flex items-start space-x-4">
+                          <div className="shrink-0 mt-1">
+                            <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <span className="text-sm font-medium text-blue-700">小锁老师在另一个对话中</span>
+                            </div>
+                            <div className="text-xs text-blue-600 space-y-2">
+                              <p>您有一个请求正在{userProcessing ? '处理中' : '排队中'}，但您当前查看的是其他对话。</p>
+                              <button
+                                onClick={() => {
+                                  if (latestConversation) {
+                                    handleLoadConversation(latestConversation.id);
+                                  } else {
+                                    handleNewConversation();
+                                  }
+                                }}
+                                className="flex items-center space-x-1 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                </svg>
+                                <span>返回活动对话</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
-                        <div className="text-xs text-gray-500 space-y-1">
-                          <div>预计需要 2~3 分钟时间等待</div>
-                          <div className="flex items-center space-x-2">
-                            <span>已等待:</span>
-                            <span className="font-mono font-semibold text-orange-600">{Math.floor(waitingTime / 60)}:{(waitingTime % 60).toString().padStart(2, '0')}</span>
-                          </div>
-                        </div>
-                        <button onClick={handleCancelRequest} className="mt-3 text-xs text-gray-500 hover:text-red-600 underline transition-colors">取消请求</button>
                       </div>
                     </div>
+                  );
+                }
+                
+                // 正常的加载状态
+                if (!isLoading) return null;
+                
+                // 计算前面有多少人
+                let queuePosition = 0;
+                if (userInQueue) {
+                  queuePosition = queueStatus?.queue_items.findIndex(item => isCurrentUser(item.user_id)) || 0;
+                }
+                
+                const isInQueue = userInQueue && !userProcessing;
+                const peopleAhead = queuePosition + (queueStatus?.processing_count || 0);
+                
+                return (
+                  <div className="flex justify-start">
+                    <div className="bg-white border border-gray-200 rounded-lg px-5 py-4 shadow-sm">
+                      <div className="flex items-start space-x-4">
+                        <div className="shrink-0 mt-1">
+                          <svg className="w-8 h-8 text-orange-500 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <span className="text-sm font-medium text-gray-700">
+                              {isInQueue 
+                                ? '小锁老师正在排队中' 
+                                : '小锁老师正在让模型努力干活'}
+                            </span>
+                            <div className="flex space-x-1">
+                              <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                              <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                              <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-500 space-y-1">
+                            {isInQueue ? (
+                              <>
+                                <div className="flex items-center space-x-2">
+                                  <svg className="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                                  </svg>
+                                  <span>前面还有 <span className="font-semibold text-orange-600">{peopleAhead}</span> 人在使用</span>
+                                </div>
+                                <div>您的请求将自动处理，请耐心等待</div>
+                              </>
+                            ) : (
+                              <>
+                                <div>预计需要 2~3 分钟时间等待</div>
+                              </>
+                            )}
+                            <div className="flex items-center space-x-2">
+                              <span>已等待:</span>
+                              <span className="font-mono font-semibold text-orange-600">{Math.floor(waitingTime / 60)}:{(waitingTime % 60).toString().padStart(2, '0')}</span>
+                            </div>
+                          </div>
+                          <button onClick={handleCancelRequest} className="mt-3 text-xs text-gray-500 hover:text-red-600 underline transition-colors">取消请求</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+          </div>
+
+          {/* Queue Status Ball - Desktop */}
+          <div className="hidden lg:block absolute top-4 right-4 z-10">
+            <div className="relative">
+              {/* Status Ball */}
+              <button
+                onClick={() => setIsQueuePanelOpen(!isQueuePanelOpen)}
+                className={`w-12 h-12 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 ${
+                  queueStatus && queueStatus.total_active > 0
+                    ? 'bg-orange-500 hover:bg-orange-600'
+                    : 'bg-green-500 hover:bg-green-600'
+                }`}
+                title="队列状态"
+              >
+                {queueStatus && queueStatus.total_active > 0 ? (
+                  <div className="relative">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="absolute -top-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center">
+                      <span className="text-xs font-bold text-orange-600">{queueStatus.total_active}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+
+              {/* Dropdown Panel */}
+              {isQueuePanelOpen && (
+                <div className="absolute top-14 right-0 w-80 bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden">
+                  <div className="p-4 bg-gradient-to-r from-orange-50 to-white border-b border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <h3 className="font-semibold text-gray-900">请求队列</h3>
+                      </div>
+                      <button
+                        onClick={() => setIsQueuePanelOpen(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-96 overflow-y-auto custom-scrollbar">
+                    {queueStatus && queueStatus.total_active > 0 ? (
+                      <div className="p-4 space-y-3">
+                        {/* Processing Items */}
+                        {queueStatus.processing_items.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-500 mb-2 flex items-center">
+                              <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                              处理中
+                            </h4>
+                            <div className="space-y-2">
+                              {queueStatus.processing_items.map((item) => (
+                                <div
+                                  key={item.request_id}
+                                  className={`rounded-lg p-3 border ${
+                                    isCurrentUser(item.user_id)
+                                      ? 'bg-orange-50 border-orange-300'
+                                      : 'bg-green-50 border-green-200'
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-2">
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-sm ${
+                                      isCurrentUser(item.user_id) ? 'bg-orange-500' : 'bg-green-500'
+                                    }`}>
+                                      {getUserAvatar(item.user_name, item.user_email)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className={`text-sm font-medium ${
+                                        isCurrentUser(item.user_id) ? 'text-orange-700' : 'text-green-700'
+                                      }`}>
+                                        {getUserDisplayName(item.user_id, item.user_name)}
+                                      </div>
+                                      <div className="text-xs text-gray-500">正在处理中...</div>
+                                    </div>
+                                    <svg className="w-4 h-4 text-green-600 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Queue Items */}
+                        {queueStatus.queue_items.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-500 mb-2 flex items-center justify-between">
+                              <div className="flex items-center">
+                                <div className="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
+                                队列中
+                              </div>
+                              <span className="text-orange-600">{queueStatus.queue_items.length} 人</span>
+                            </h4>
+                            <div className="space-y-2">
+                              {queueStatus.queue_items.map((item, index) => (
+                                <div
+                                  key={item.request_id}
+                                  className={`rounded-lg p-3 border ${
+                                    isCurrentUser(item.user_id)
+                                      ? 'bg-orange-50 border-orange-300'
+                                      : 'bg-gray-50 border-gray-200'
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-2">
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                      isCurrentUser(item.user_id)
+                                        ? 'bg-orange-500 text-white'
+                                        : 'bg-gray-300 text-gray-700'
+                                    }`}>
+                                      {index + 1}
+                                    </div>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-sm ${
+                                      isCurrentUser(item.user_id) ? 'bg-orange-500' : 'bg-gray-400'
+                                    }`}>
+                                      {getUserAvatar(item.user_name, item.user_email)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className={`text-sm font-medium ${
+                                        isCurrentUser(item.user_id) ? 'text-orange-700' : 'text-gray-700'
+                                      }`}>
+                                        {getUserDisplayName(item.user_id, item.user_name)}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        {new Date(item.created_at).toLocaleTimeString()}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-6 text-center">
+                        <svg className="w-12 h-12 text-green-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p className="text-sm text-gray-600">当前无排队</p>
+                        <p className="text-xs text-gray-500 mt-1">系统运行正常</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
             </div>
-          )}
+          </div>
         </div>
 
         <div className="border-t border-gray-200 bg-white p-4">

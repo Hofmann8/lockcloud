@@ -895,6 +895,255 @@ def get_directories():
 
 
 
+@files_bp.route('/<int:file_id>', methods=['PATCH'])
+@jwt_required()
+def update_file(file_id):
+    """
+    Update file metadata (only by uploader)
+    
+    PATCH /api/files/{file_id}
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "activity_date": "2025-03-20",
+        "activity_type": "performance",
+        "instructor": "alex"
+    }
+    
+    Returns:
+        200: File updated successfully
+        400: Invalid input or validation failed
+        401: Unauthorized
+        403: Not the uploader
+        404: File not found
+        500: Update failed
+    """
+    try:
+        # Get current user ID from JWT
+        current_user_id = int(get_jwt_identity())
+        
+        # Find file by ID
+        file = File.query.get(file_id)
+        
+        if not file:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_001',
+                    'message': '文件不存在'
+                }
+            }), 404
+        
+        # Verify user is the uploader
+        if file.uploader_id != current_user_id:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_002',
+                    'message': '您无权编辑此文件'
+                }
+            }), 403
+        
+        # Get request data
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '请求数据不能为空'
+                }
+            }), 400
+        
+        # Track if any changes were made
+        changes_made = False
+        old_directory = file.directory
+        
+        # Update activity_date if provided
+        if 'activity_date' in data:
+            activity_date_str = data['activity_date'].strip()
+            try:
+                new_activity_date = datetime.fromisoformat(activity_date_str).date()
+                if file.activity_date != new_activity_date:
+                    file.activity_date = new_activity_date
+                    changes_made = True
+            except ValueError:
+                return jsonify({
+                    'error': {
+                        'code': 'FILE_007',
+                        'message': '活动日期格式无效，请使用 ISO 格式 (YYYY-MM-DD)'
+                    }
+                }), 400
+        
+        # Update activity_type if provided
+        if 'activity_type' in data:
+            activity_type = data['activity_type'].strip()
+            
+            # Validate activity_type
+            from services.tag_preset_service import tag_preset_service
+            activity_type_presets = tag_preset_service.get_active_presets('activity_type')
+            valid_activity_types = [preset.value for preset in activity_type_presets]
+            
+            if activity_type not in valid_activity_types:
+                return jsonify({
+                    'error': {
+                        'code': 'FILE_008',
+                        'message': f'活动类型无效。有效选项: {", ".join(valid_activity_types)}'
+                    }
+                }), 400
+            
+            if file.activity_type != activity_type:
+                file.activity_type = activity_type
+                changes_made = True
+        
+        # Update instructor if provided
+        if 'instructor' in data:
+            instructor = data['instructor'].strip()
+            
+            # Validate instructor
+            from services.tag_preset_service import tag_preset_service
+            instructor_presets = tag_preset_service.get_active_presets('instructor')
+            valid_instructors = [preset.value for preset in instructor_presets]
+            
+            if instructor not in valid_instructors:
+                return jsonify({
+                    'error': {
+                        'code': 'FILE_009',
+                        'message': f'带训老师标签无效。有效选项: {", ".join(valid_instructors)}'
+                    }
+                }), 400
+            
+            if file.instructor != instructor:
+                file.instructor = instructor
+                changes_made = True
+        
+        if not changes_made:
+            return jsonify({
+                'success': True,
+                'message': '没有需要更新的内容',
+                'file': file.to_dict(include_uploader=True)
+            }), 200
+        
+        # Update directory path and S3 key if activity_type or activity_date changed
+        if file.activity_date and file.activity_type:
+            year = file.activity_date.year
+            month = f"{file.activity_date.month:02d}"
+            new_directory = f"{file.activity_type}/{year}/{month}"
+            
+            if new_directory != old_directory:
+                # Update directory
+                file.directory = new_directory
+                
+                # Update S3 key
+                old_s3_key = file.s3_key
+                filename = file.filename
+                new_s3_key = f"{new_directory}/{filename}"
+                
+                # Check if new location already has a file with same name
+                existing_file = File.query.filter(
+                    File.s3_key == new_s3_key,
+                    File.id != file_id
+                ).first()
+                
+                if existing_file:
+                    return jsonify({
+                        'error': {
+                            'code': 'FILE_005',
+                            'message': f'目标目录已存在同名文件: {filename}'
+                        }
+                    }), 400
+                
+                # Move file in S3
+                try:
+                    s3_service.copy_file(old_s3_key, new_s3_key)
+                    s3_service.delete_file(old_s3_key)
+                    file.s3_key = new_s3_key
+                    
+                    # Update public URL
+                    bucket = s3_service.get_bucket_name()
+                    endpoint = current_app.config.get('S3_ENDPOINT', 'https://s3.bitiful.net')
+                    file.public_url = f"{endpoint}/{bucket}/{new_s3_key}"
+                    
+                except Exception as e:
+                    current_app.logger.error(f'Failed to move file in S3: {str(e)}')
+                    return jsonify({
+                        'error': {
+                            'code': 'S3_001',
+                            'message': '移动文件失败'
+                        }
+                    }), 500
+        
+        # Update S3 tags
+        from auth.models import User
+        uploader = User.query.get(current_user_id)
+        uploader_name = uploader.name if uploader else str(current_user_id)
+        
+        s3_tags = {
+            'activity_date': file.activity_date.isoformat() if file.activity_date else '',
+            'activity_type': file.activity_type or '',
+            'instructor': file.instructor or '',
+            'uploader_name': uploader_name,
+            'upload_timestamp': file.uploaded_at.isoformat() + 'Z' if file.uploaded_at else '',
+            'original_filename': file.original_filename or file.filename
+        }
+        
+        try:
+            s3_service.update_object_tags(file.s3_key, s3_tags)
+        except Exception as e:
+            current_app.logger.warning(f'Failed to update tags for {file.s3_key}: {str(e)}')
+            # Don't fail the update if tagging fails
+        
+        # Create log entry
+        log = FileLog.create_log(
+            user_id=current_user_id,
+            operation=OperationType.UPDATE,
+            file_id=file.id,
+            file_path=file.s3_key,
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        db.session.add(log)
+        db.session.commit()
+        
+        current_app.logger.info(
+            f'User {current_user_id} updated file {file_id}: {file.s3_key}'
+        )
+        
+        # Get tag preset display names for response
+        from services.tag_preset_service import tag_preset_service
+        
+        activity_type_preset = next(
+            (p for p in tag_preset_service.get_active_presets('activity_type') if p.value == file.activity_type),
+            None
+        )
+        activity_type_display = activity_type_preset.display_name if activity_type_preset else file.activity_type
+        
+        instructor_preset = next(
+            (p for p in tag_preset_service.get_active_presets('instructor') if p.value == file.instructor),
+            None
+        )
+        instructor_display = instructor_preset.display_name if instructor_preset else file.instructor
+        
+        # Build response with display names
+        file_dict = file.to_dict(include_uploader=True)
+        file_dict['activity_type_display'] = activity_type_display
+        file_dict['instructor_display'] = instructor_display
+        
+        return jsonify({
+            'success': True,
+            'message': '文件信息更新成功',
+            'file': file_dict
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error updating file {file_id}: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '更新文件信息失败，请稍后重试'
+            }
+        }), 500
+
+
 @files_bp.route('/check-filenames', methods=['POST'])
 @jwt_required()
 def check_filenames():
@@ -999,5 +1248,153 @@ def check_filenames():
             'error': {
                 'code': 'INTERNAL_ERROR',
                 'message': '检查文件名失败，请稍后重试'
+            }
+        }), 500
+
+
+
+@files_bp.route('/<int:file_id>/adjacent', methods=['GET'])
+@jwt_required()
+def get_adjacent_files(file_id):
+    """
+    Get previous and next files in the same directory hierarchy
+    
+    GET /api/files/<file_id>/adjacent
+    Headers: Authorization: Bearer <token>
+    
+    Returns:
+        200: Adjacent files retrieved successfully
+        {
+            "previous": { file object } or null,
+            "next": { file object } or null
+        }
+        404: File not found
+        401: Unauthorized
+        500: Retrieval failed
+    """
+    try:
+        # Get current user ID from JWT
+        current_user_id = int(get_jwt_identity())
+        
+        # Get the current file
+        current_file = File.query.get(file_id)
+        if not current_file:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_NOT_FOUND',
+                    'message': '文件不存在'
+                }
+            }), 404
+        
+        # Get all files in the same directory, ordered by activity_date DESC, then filename ASC
+        # This ensures files are sorted by date (newest first), then alphabetically
+        same_directory_files = File.query.filter(
+            File.directory == current_file.directory
+        ).order_by(
+            File.activity_date.desc(),
+            File.filename.asc()
+        ).all()
+        
+        # Find current file index
+        current_index = None
+        for i, f in enumerate(same_directory_files):
+            if f.id == file_id:
+                current_index = i
+                break
+        
+        if current_index is None:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_NOT_FOUND',
+                    'message': '文件不存在'
+                }
+            }), 404
+        
+        # Get previous and next files (simple navigation within directory)
+        previous_file = None
+        next_file = None
+        
+        if current_index > 0:
+            previous_file = same_directory_files[current_index - 1]
+        
+        if current_index < len(same_directory_files) - 1:
+            next_file = same_directory_files[current_index + 1]
+        
+        # If at directory boundaries, try to find files in adjacent directories
+        if previous_file is None or next_file is None:
+            # Parse directory path
+            dir_parts = current_file.directory.split('/')
+            
+            if len(dir_parts) >= 3:  # e.g., "regular_training/2025/11"
+                activity_type = dir_parts[0]
+                
+                # Get all directories for this activity type, sorted
+                all_dirs = db.session.query(File.directory).filter(
+                    File.directory.like(f"{activity_type}/%")
+                ).distinct().order_by(File.directory.desc()).all()  # DESC for newest first
+                
+                all_dirs = [d[0] for d in all_dirs]
+                
+                # Find current directory index
+                try:
+                    current_dir_index = all_dirs.index(current_file.directory)
+                except ValueError:
+                    current_dir_index = -1
+                
+                # Get previous directory's last file if needed
+                if previous_file is None and current_dir_index > 0:
+                    prev_dir = all_dirs[current_dir_index - 1]
+                    previous_file = File.query.filter(
+                        File.directory == prev_dir
+                    ).order_by(
+                        File.activity_date.desc(),
+                        File.filename.desc()
+                    ).first()
+                
+                # Get next directory's first file if needed
+                if next_file is None and current_dir_index < len(all_dirs) - 1:
+                    next_dir = all_dirs[current_dir_index + 1]
+                    next_file = File.query.filter(
+                        File.directory == next_dir
+                    ).order_by(
+                        File.activity_date.desc(),
+                        File.filename.asc()
+                    ).first()
+                
+                # If still no adjacent files, wrap around
+                if previous_file is None and len(all_dirs) > 1:
+                    # Wrap to last directory's last file
+                    last_dir = all_dirs[-1]
+                    previous_file = File.query.filter(
+                        File.directory == last_dir
+                    ).order_by(
+                        File.activity_date.desc(),
+                        File.filename.desc()
+                    ).first()
+                
+                if next_file is None and len(all_dirs) > 1:
+                    # Wrap to first directory's first file
+                    first_dir = all_dirs[0]
+                    next_file = File.query.filter(
+                        File.directory == first_dir
+                    ).order_by(
+                        File.activity_date.desc(),
+                        File.filename.asc()
+                    ).first()
+        
+        # Convert to dict
+        result = {
+            'previous': previous_file.to_dict() if previous_file else None,
+            'next': next_file.to_dict() if next_file else None
+        }
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting adjacent files: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '获取相邻文件失败，请稍后重试'
             }
         }), 500

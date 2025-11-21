@@ -37,7 +37,7 @@ class Config:
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(',')
     CORS_SUPPORTS_CREDENTIALS = True
     CORS_ALLOW_HEADERS = ['Content-Type', 'Authorization']
-    CORS_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+    CORS_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
     
     # Rate Limiting
     RATELIMIT_ENABLED = True

@@ -2,7 +2,9 @@
 
 import { use, useEffect, lazy, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { useFileDetails } from '@/lib/hooks/useFileDetails';
+import { getAdjacentFiles } from '@/lib/api/files';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { ErrorCard } from '@/components/ErrorCard';
@@ -30,8 +32,28 @@ function FilePreviewPageContent({ params }: PageProps) {
     !isNaN(fileIdNum) ? fileIdNum : null
   );
 
+  // Fetch adjacent files
+  const { data: adjacentFiles } = useQuery({
+    queryKey: ['adjacent-files', fileIdNum],
+    queryFn: () => getAdjacentFiles(fileIdNum),
+    enabled: !isNaN(fileIdNum) && !!file,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
   const handleBack = () => {
     router.push('/files');
+  };
+
+  const handlePrevious = () => {
+    if (adjacentFiles?.previous) {
+      router.push(`/files/${adjacentFiles.previous.id}`);
+    }
+  };
+
+  const handleNext = () => {
+    if (adjacentFiles?.next) {
+      router.push(`/files/${adjacentFiles.next.id}`);
+    }
   };
 
   // Update page title when file is loaded
@@ -46,6 +68,27 @@ function FilePreviewPageContent({ params }: PageProps) {
       document.title = zhCN.files.title;
     };
   }, [file]);
+
+  // Keyboard navigation (arrow keys)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (e.key === 'ArrowLeft' && adjacentFiles?.previous) {
+        e.preventDefault();
+        handlePrevious();
+      } else if (e.key === 'ArrowRight' && adjacentFiles?.next) {
+        e.preventDefault();
+        handleNext();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [adjacentFiles]);
 
   // Invalid file ID
   if (isNaN(fileIdNum)) {
@@ -229,8 +272,8 @@ function FilePreviewPageContent({ params }: PageProps) {
 
   return (
     <div className="space-y-3 sm:space-y-4 lg:space-y-6">
-      {/* Header with back button */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      {/* Header with navigation buttons */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
         <Button
           variant="ghost"
           size="md"
@@ -244,6 +287,59 @@ function FilePreviewPageContent({ params }: PageProps) {
         >
           <span className="hidden xs:inline">{zhCN.common.back}</span>
         </Button>
+
+        {/* Previous/Next Navigation - Redesigned */}
+        <div className="flex items-center gap-1.5 bg-white rounded-lg border border-black/10 p-1 shadow-sm">
+          <button
+            onClick={handlePrevious}
+            disabled={!adjacentFiles?.previous}
+            aria-label="上一个文件"
+            className={`
+              group relative flex items-center gap-1.5 px-3 py-1.5 rounded-md
+              transition-all duration-200
+              ${adjacentFiles?.previous 
+                ? 'hover:bg-accent-orange/10 text-primary-black cursor-pointer' 
+                : 'text-accent-gray/40 cursor-not-allowed'
+              }
+            `}
+          >
+            <svg 
+              className={`w-4 h-4 transition-transform ${adjacentFiles?.previous ? 'group-hover:-translate-x-0.5' : ''}`}
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span className="text-sm font-medium hidden sm:inline">上一条</span>
+          </button>
+
+          <div className="w-px h-6 bg-black/10" />
+
+          <button
+            onClick={handleNext}
+            disabled={!adjacentFiles?.next}
+            aria-label="下一个文件"
+            className={`
+              group relative flex items-center gap-1.5 px-3 py-1.5 rounded-md
+              transition-all duration-200
+              ${adjacentFiles?.next 
+                ? 'hover:bg-accent-orange/10 text-primary-black cursor-pointer' 
+                : 'text-accent-gray/40 cursor-not-allowed'
+              }
+            `}
+          >
+            <span className="text-sm font-medium hidden sm:inline">下一条</span>
+            <svg 
+              className={`w-4 h-4 transition-transform ${adjacentFiles?.next ? 'group-hover:translate-x-0.5' : ''}`}
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Path Breadcrumb Navigation */}

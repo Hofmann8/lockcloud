@@ -276,6 +276,37 @@ class S3Service:
             current_app.logger.error(f'Failed to generate presigned delete URL: {str(e)}')
             raise
     
+    def copy_file(self, source_key: str, destination_key: str) -> bool:
+        """
+        Copy a file within the same S3 bucket
+        
+        Args:
+            source_key: Source S3 object key
+            destination_key: Destination S3 object key
+        
+        Returns:
+            True if copy was successful
+        
+        Raises:
+            ClientError: If copy fails
+        """
+        bucket = self.get_bucket_name()
+        
+        try:
+            # Copy object within the same bucket
+            self.client.copy_object(
+                Bucket=bucket,
+                CopySource={'Bucket': bucket, 'Key': source_key},
+                Key=destination_key
+            )
+            
+            current_app.logger.info(f'Successfully copied file from {source_key} to {destination_key}')
+            return True
+            
+        except ClientError as e:
+            current_app.logger.error(f'Failed to copy file from {source_key} to {destination_key}: {str(e)}')
+            raise
+    
     def delete_file(self, key: str) -> bool:
         """
         Delete a file from S3

@@ -172,6 +172,7 @@ export const zhCN = {
     files: "文件",
     upload: "上传",
     ai: "LockAI",
+    changelog: "更新日志",
     admin: "管理",
   },
 

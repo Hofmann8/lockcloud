@@ -9,6 +9,7 @@ import { Button } from './Button';
 import { Card } from './Card';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { LegacyFileTagEditor } from './LegacyFileTagEditor';
+import { EditFileDialog } from './EditFileDialog';
 import { zhCN } from '@/locales/zh-CN';
 import toast from 'react-hot-toast';
 
@@ -28,6 +29,7 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   
   const user = useAuthStore((state) => state.user);
   const deleteFile = useFileStore((state) => state.deleteFile);
@@ -117,6 +119,13 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
 
   const handleTagUpdateSuccess = () => {
     setIsTagEditorOpen(false);
+    if (onFileUpdate) {
+      onFileUpdate();
+    }
+  };
+
+  const handleEditSuccess = () => {
+    toast.success('文件信息更新成功');
     if (onFileUpdate) {
       onFileUpdate();
     }
@@ -280,6 +289,18 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
               </Button>
             )}
             
+            {/* 编辑按钮 - 只有上传者可以编辑非legacy文件 */}
+            {isOwner && !file.is_legacy && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsEditDialogOpen(true)}
+                fullWidth
+              >
+                编辑信息
+              </Button>
+            )}
+            
             {/* 删除按钮 */}
             {isOwner && (
               <Button
@@ -311,6 +332,14 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
         isOpen={isTagEditorOpen}
         onClose={() => setIsTagEditorOpen(false)}
         onSuccess={handleTagUpdateSuccess}
+      />
+
+      {/* 编辑文件信息对话框 */}
+      <EditFileDialog
+        file={file}
+        isOpen={isEditDialogOpen}
+        onClose={() => setIsEditDialogOpen(false)}
+        onSuccess={handleEditSuccess}
       />
     </>
   );

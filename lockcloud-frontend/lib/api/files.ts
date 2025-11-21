@@ -98,6 +98,21 @@ export const getDirectories = async (): Promise<{ directories: DirectoryNode[] }
 };
 
 /**
+ * Update file metadata (activity_date, activity_type, instructor)
+ */
+export const updateFile = async (
+  fileId: number,
+  data: {
+    activity_date?: string;
+    activity_type?: string;
+    instructor?: string;
+  }
+): Promise<File> => {
+  const response = await apiClient.patch(`/api/files/${fileId}`, data);
+  return response.data.file;
+};
+
+/**
  * Update file tags (for legacy files)
  */
 export const updateFileTags = async (
@@ -120,5 +135,18 @@ export const checkFilenames = async (data: {
   available_files: string[];
 }> => {
   const response = await apiClient.post('/api/files/check-filenames', data);
+  return response.data;
+};
+
+/**
+ * Get adjacent files (previous and next) in the same directory
+ */
+export const getAdjacentFiles = async (
+  fileId: number
+): Promise<{
+  previous: File | null;
+  next: File | null;
+}> => {
+  const response = await apiClient.get(`/api/files/${fileId}/adjacent`);
   return response.data;
 };
