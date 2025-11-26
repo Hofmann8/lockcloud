@@ -1,34 +1,32 @@
 import apiClient from './client';
-import {
-  LoginRequest,
-  RegisterRequest,
-  AuthResponse,
-  User,
-} from '@/types';
+import { AuthResponse, User } from '@/types';
+
+// ============================================================
+// SSO Authentication (New)
+// ============================================================
 
 /**
- * Send verification code to email
+ * Get SSO configuration from backend
  */
-export const sendCode = async (email: string): Promise<{ message: string }> => {
-  const response = await apiClient.post('/api/auth/send-code', { email });
+export const getSSOConfig = async (): Promise<{
+  sso_login_url: string;
+  sso_frontend_url: string;
+}> => {
+  const response = await apiClient.get('/api/auth/sso/config');
   return response.data;
 };
 
 /**
- * Register new user with verification code
+ * SSO Login - Verify SSO token and get local JWT token
  */
-export const register = async (data: RegisterRequest): Promise<AuthResponse> => {
-  const response = await apiClient.post('/api/auth/register', data);
+export const ssoLogin = async (ssoToken: string): Promise<AuthResponse> => {
+  const response = await apiClient.post('/api/auth/sso/login', { token: ssoToken });
   return response.data;
 };
 
-/**
- * Login user and get JWT token
- */
-export const login = async (data: LoginRequest): Promise<AuthResponse> => {
-  const response = await apiClient.post('/api/auth/login', data);
-  return response.data;
-};
+// ============================================================
+// Preserved Methods (Still used)
+// ============================================================
 
 /**
  * Refresh JWT token

@@ -14,9 +14,11 @@ export default function AIPage() {
   const [messages, setMessages] = useState<aiApi.AIMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [useWebSearch, setUseWebSearch] = useState(false); // 联网搜索开关
   const [showCancelWarning, setShowCancelWarning] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [waitingTime, setWaitingTime] = useState(0);
+  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [messageMetadata, setMessageMetadata] = useState<Record<number, {
     model_name?: string;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
@@ -67,16 +69,22 @@ export default function AIPage() {
   const { user: currentUser } = useAuthStore();
 
   const sendMessageMutation = useMutation({
-    mutationFn: ({ message, model, conversationId, signal }: {
+    mutationFn: ({ message, model, conversationId, signal, useWebSearch }: {
       message: string;
       model: string;
       conversationId?: number;
       signal?: AbortSignal;
-    }) => aiApi.sendMessage(message, model, conversationId, signal),
+      useWebSearch?: boolean;
+    }) => aiApi.sendMessage(message, model, conversationId, signal, useWebSearch),
     retry: false,
     onSuccess: (data) => {
       setCurrentConversationId(data.conversation_id);
       setMessages(prev => [...prev, data.message]);
+      
+      // 保存 request_id（如果有）
+      if ((data as any).request_id) {
+        setCurrentRequestId((data as any).request_id);
+      }
       
       if (data.message.id) {
         setMessageMetadata(prev => ({
@@ -153,7 +161,8 @@ export default function AIPage() {
         message: messageToSend,
         model: selectedModel,
         conversationId: currentConversationId || undefined,
-        signal: abortControllerRef.current?.signal
+        signal: abortControllerRef.current?.signal,
+        useWebSearch: useWebSearch
       });
     } catch (error: unknown) {
       if (error && typeof error === 'object' && 'name' in error && error.name === 'CanceledError') {
@@ -178,22 +187,39 @@ export default function AIPage() {
     setShowCancelWarning(true);
   }, []);
 
-  const handleConfirmCancel = useCallback(() => {
+  const handleConfirmCancel = useCallback(async () => {
+    // 取消HTTP请求
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
-      setIsLoading(false);
-      setShowCancelWarning(false);
-      abortControllerRef.current = null;
-      
-      if (waitingTimerRef.current) {
-        clearInterval(waitingTimerRef.current);
-        waitingTimerRef.current = null;
+    }
+    
+    // 如果有request_id，从队列中移除
+    if (currentRequestId) {
+      try {
+        await aiApi.cancelRequest(currentRequestId);
+        toast.success('请求已从队列中取消');
+      } catch (error) {
+        console.error('Failed to cancel request from queue:', error);
+        // 即使队列取消失败，也继续取消本地请求
       }
-      setWaitingTime(0);
-      
+      setCurrentRequestId(null);
+    } else {
       toast.error('请求已取消');
     }
-  }, []);
+    
+    setIsLoading(false);
+    setShowCancelWarning(false);
+    abortControllerRef.current = null;
+    
+    if (waitingTimerRef.current) {
+      clearInterval(waitingTimerRef.current);
+      waitingTimerRef.current = null;
+    }
+    setWaitingTime(0);
+    
+    // 刷新队列状态
+    queryClient.invalidateQueries({ queryKey: ['ai-queue-status'] });
+  }, [currentRequestId, queryClient]);
 
   const handleCancelWarningClose = useCallback(() => {
     setShowCancelWarning(false);
@@ -984,11 +1010,49 @@ export default function AIPage() {
         </div>
 
         <div className="border-t border-gray-200 bg-white p-4">
-          <div className="max-w-3xl mx-auto flex space-x-4">
-            <input type="text" value={inputMessage} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder="输入消息..." disabled={isLoading} className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-100" />
-            <button onClick={handleSendMessage} disabled={!inputMessage.trim() || isLoading || sendMessageMutation.isPending || isSending} className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
-              {isLoading || sendMessageMutation.isPending || isSending ? '发送中...' : '发送'}
-            </button>
+          <div className="max-w-3xl mx-auto">
+            {/* 联网搜索开关 */}
+            <div className="mb-3 flex items-center justify-between">
+              <button
+                onClick={() => setUseWebSearch(!useWebSearch)}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all ${
+                  useWebSearch
+                    ? 'bg-blue-50 border-2 border-blue-500 text-blue-700'
+                    : 'bg-gray-50 border-2 border-gray-300 text-gray-600 hover:bg-gray-100'
+                }`}
+                title={useWebSearch ? '已启用联网搜索' : '点击启用联网搜索'}
+              >
+                <svg 
+                  className={`w-4 h-4 ${useWebSearch ? 'text-blue-600' : 'text-gray-500'}`} 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" 
+                  />
+                </svg>
+                <span className="text-sm font-medium">
+                  {useWebSearch ? '🌐 联网搜索已启用' : '联网搜索'}
+                </span>
+              </button>
+              {useWebSearch && (
+                <span className="text-xs text-blue-600 animate-pulse">
+                  将使用 Tavily 搜索最新信息
+                </span>
+              )}
+            </div>
+            
+            {/* 输入框和发送按钮 */}
+            <div className="flex space-x-4">
+              <input type="text" value={inputMessage} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder={useWebSearch ? "输入问题，AI 将联网搜索..." : "输入消息..."} disabled={isLoading} className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-100" />
+              <button onClick={handleSendMessage} disabled={!inputMessage.trim() || isLoading || sendMessageMutation.isPending || isSending} className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
+                {isLoading || sendMessageMutation.isPending || isSending ? '发送中...' : '发送'}
+              </button>
+            </div>
           </div>
         </div>
       </main>

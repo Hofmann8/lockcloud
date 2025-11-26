@@ -106,12 +106,14 @@ export async function sendMessage(
   message: string,
   model: string,
   conversationId?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  useWebSearch?: boolean
 ): Promise<ChatResponse> {
   const response = await apiClient.post('/api/ai/chat', {
     message,
     model,
-    conversation_id: conversationId
+    conversation_id: conversationId,
+    use_web_search: useWebSearch || false
   }, {
     signal
   });
@@ -172,5 +174,10 @@ export interface QueueStatus {
 
 export async function getQueueStatus(): Promise<QueueStatus> {
   const response = await apiClient.get('/api/ai/queue/status');
+  return response.data;
+}
+
+export async function cancelRequest(requestId: string): Promise<{ message: string; success: boolean }> {
+  const response = await apiClient.post(`/api/ai/queue/cancel/${requestId}`);
   return response.data;
 }

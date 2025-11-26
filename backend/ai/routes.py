@@ -1,9 +1,9 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app import db
+from extensions import db
 from ai.models import AIConversation, AIMessage
 from ai.service import AIService
-from ai.queue_manager import queue_manager
+from ai.queue_manager_redis import queue_manager
 from exceptions import LockCloudException
 import uuid
 
@@ -155,6 +155,8 @@ def chat():
     message = data.get('message')
     model = data.get('model', 'gpt-5.1-thinking')
     use_queue = data.get('use_queue', True)  # 默认使用队列
+    use_web_search = data.get('use_web_search', False)  # 是否使用网络搜索（手动开关）
+    web_search_query = data.get('web_search_query')  # 自定义搜索查询
     
     logger.info(f'AI chat request - User: {user_id}, Model: {model}, UseQueue: {use_queue}')
     
@@ -227,8 +229,13 @@ def chat():
             def process_ai_request():
                 """处理 AI 请求的回调函数"""
                 try:
-                    logger.info(f'Processing AI request - Conversation: {conversation_id}')
-                    response_data = ai_service.chat(messages, model)
+                    logger.info(f'Processing AI request - Conversation: {conversation_id}, WebSearch: {use_web_search}')
+                    response_data = ai_service.chat(
+                        messages, 
+                        model,
+                        use_web_search=use_web_search,
+                        web_search_query=web_search_query
+                    )
                     logger.info(f'AI response received - Conversation: {conversation_id}')
                     
                     # 在工作线程中，需要创建新的会话
@@ -296,7 +303,9 @@ def chat():
                             'message': message_dict,
                             'model_name': response_data.get('model', model),
                             'usage': usage,
-                            'pricing': response_data.get('pricing', {'input': 0, 'output': 0})
+                            'pricing': response_data.get('pricing', {'input': 0, 'output': 0}),
+                            'web_search_used': response_data.get('web_search_used', False),
+                            'search_results': response_data.get('search_results')
                         }
                         
                     except Exception as e:
@@ -309,12 +318,34 @@ def chat():
                 except Exception as e:
                     raise e
             
-            # 添加到队列，传递应用上下文
+            # 添加到队列
             app_context = current_app.app_context()
             queue_manager.add_request(request_id, user_id, process_ai_request, app_context)
             
-            # 等待完成
-            result = queue_manager.wait_for_completion(request_id, timeout=300)
+            logger.info(f'Request {request_id} added to queue, returning request_id to client')
+            
+            # 等待轮到自己（Redis 模式）或等待工作线程处理（内存模式）
+            if queue_manager.use_redis:
+                # Redis 模式：等待轮到自己
+                if not queue_manager.try_acquire_processing_slot(request_id, timeout=300):
+                    raise LockCloudException('AI_003', '请求超时，请稍后重试', 504)
+                
+                # 标记为正在处理
+                queue_manager.update_request_status(request_id, 'processing')
+                
+                # 在当前进程中执行
+                try:
+                    result_data = process_ai_request()
+                    queue_manager.update_request_status(request_id, 'completed', result=result_data)
+                except Exception as e:
+                    queue_manager.update_request_status(request_id, 'failed', error=str(e))
+                    raise
+                
+                # 获取结果
+                result = queue_manager.get_request_status(request_id)
+            else:
+                # 内存模式：等待工作线程处理完成
+                result = queue_manager.wait_for_completion(request_id, timeout=300)
             
             if result['status'] == 'failed':
                 error_msg = result.get('error', 'Unknown error')
@@ -328,7 +359,10 @@ def chat():
                 else:
                     raise LockCloudException('AI_003', f'AI 服务错误: {error_msg}', 500)
             
-            return jsonify(result['result']), 200
+            # 在返回结果中包含 request_id
+            response_data = result['result']
+            response_data['request_id'] = request_id
+            return jsonify(response_data), 200
             
         except TimeoutError:
             raise LockCloudException('AI_003', '请求超时，请稍后重试', 504)
@@ -342,8 +376,13 @@ def chat():
     # 不使用队列，直接处理
     else:
         try:
-            logger.info(f'Processing AI request directly - Conversation: {conversation_id}')
-            response_data = ai_service.chat(messages, model)
+            logger.info(f'Processing AI request directly - Conversation: {conversation_id}, WebSearch: {use_web_search}')
+            response_data = ai_service.chat(
+                messages, 
+                model,
+                use_web_search=use_web_search,
+                web_search_query=web_search_query
+            )
             logger.info(f'AI response received - Conversation: {conversation_id}')
             
             # Save assistant message with usage info
@@ -396,7 +435,9 @@ def chat():
                 'message': assistant_message.to_dict(),
                 'model_name': response_data.get('model', model),
                 'usage': usage,
-                'pricing': response_data.get('pricing', {'input': 0, 'output': 0})
+                'pricing': response_data.get('pricing', {'input': 0, 'output': 0}),
+                'web_search_used': response_data.get('web_search_used', False),
+                'search_results': response_data.get('search_results')
             }), 200
             
         except Exception as e:
@@ -540,6 +581,65 @@ def get_queue_status():
             logger.warning(f'User {item["user_id"]} not found in database')
     
     return jsonify(status), 200
+
+
+@ai_bp.route('/queue/cancel/<request_id>', methods=['POST'])
+@jwt_required()
+def cancel_request(request_id):
+    """Cancel a pending AI request"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    user_id = get_jwt_identity()
+    
+    logger.info('='*60)
+    logger.info(f'[API] 收到取消请求')
+    logger.info(f'[API] User: {user_id}, RequestID: {request_id}')
+    logger.info('='*60)
+    
+    # 尝试取消请求
+    success = queue_manager.cancel_request(request_id, user_id)
+    
+    if success:
+        return jsonify({
+            'message': '请求已取消',
+            'success': True
+        }), 200
+    else:
+        # 检查请求状态
+        status = queue_manager.get_request_status(request_id)
+        
+        if not status:
+            raise LockCloudException('AI_008', '请求不存在或已过期', 404)
+        
+        if status.get('status') == 'processing':
+            raise LockCloudException('AI_009', '请求正在处理中，无法取消', 400)
+        
+        if status.get('status') in ['completed', 'failed', 'cancelled']:
+            raise LockCloudException('AI_010', f'请求已{status.get("status")}，无法取消', 400)
+        
+        raise LockCloudException('AI_011', '取消请求失败', 500)
+
+
+@ai_bp.route('/queue/clear', methods=['POST'])
+@jwt_required()
+def clear_queue():
+    """Clear all queues (admin only, for debugging)"""
+    from auth.decorators import admin_required
+    from auth.models import User
+    
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    
+    if not user or not user.is_admin:
+        raise LockCloudException('AUTH_003', '需要管理员权限', 403)
+    
+    queue_manager.clear_all_queues()
+    
+    return jsonify({
+        'message': '队列已清空',
+        'success': True
+    }), 200
 
 
 @ai_bp.route('/admin/usage', methods=['GET'])

@@ -56,3 +56,9 @@ Thumbs.db
 
 # Root level files
 req.txt
+
+# Zip archives
+*.zip
+
+# Redis
+dump.rdb

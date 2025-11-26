@@ -6,7 +6,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app, make_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import and_, or_
-from app import db
+from extensions import db
 from files.models import File
 from files.validators import (
     validate_file_naming_convention,

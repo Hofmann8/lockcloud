@@ -10,7 +10,6 @@ interface AuthState {
   isLoading: boolean;
   
   // Actions
-  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   refreshToken: () => Promise<void>;
   setUser: (user: User | null) => void;
@@ -25,28 +24,6 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       isAuthenticated: false,
       isLoading: false, // Will be set by initialize
-
-      login: async (email: string, password: string) => {
-        set({ isLoading: true });
-        try {
-          const response = await authApi.login({ email, password });
-          
-          // Store token in localStorage
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('lockcloud_token', response.token);
-          }
-          
-          set({
-            user: response.user,
-            token: response.token,
-            isAuthenticated: true,
-            isLoading: false,
-          });
-        } catch (error) {
-          set({ isLoading: false });
-          throw error;
-        }
-      },
 
       logout: () => {
         // Clear localStorage

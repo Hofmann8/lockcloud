@@ -4,7 +4,7 @@ Implements tag preset management endpoints for file categorization
 """
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app import db
+from extensions import db
 from auth.models import User
 from services.tag_preset_service import tag_preset_service
 from functools import wraps

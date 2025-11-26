@@ -1,9 +1,8 @@
 // API endpoints
 export const API_ENDPOINTS = {
-  // Auth
-  SEND_CODE: '/api/auth/send-code',
-  REGISTER: '/api/auth/register',
-  LOGIN: '/api/auth/login',
+  // Auth (SSO)
+  SSO_CONFIG: '/api/auth/sso/config',
+  SSO_LOGIN: '/api/auth/sso/login',
   REFRESH: '/api/auth/refresh',
   ME: '/api/auth/me',
   
@@ -37,12 +36,8 @@ export const DEFAULT_PAGE_SIZE = 50;
 // JWT token expiration (7 days in seconds)
 export const JWT_EXPIRATION = 7 * 24 * 60 * 60;
 
-// Verification code expiration (10 minutes in seconds)
-export const VERIFICATION_CODE_EXPIRATION = 10 * 60;
-
 // Rate limits
 export const RATE_LIMITS = {
-  VERIFICATION_CODE: 3, // per hour
   API_REQUESTS: 100, // per minute
 };
 

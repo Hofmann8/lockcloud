@@ -4,7 +4,9 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import remarkFootnotes from 'remark-footnotes';
 import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
@@ -201,9 +203,19 @@ function MarkdownMessage({ content, isUser = false }: MarkdownMessageProps) {
       .replace(/&nbsp;/g, ' ');
   };
 
-  // Preprocess content to handle HTML-escaped code blocks and math
+  // Preprocess content to handle HTML-escaped code blocks, math, and citations
   const preprocessContent = (text: string): string => {
     let processed = text;
+    
+    // Convert DOI patterns to clickable links - keep AI's original DOI format
+    // Match patterns like: DOI: 10.1016/j.cell.2021.12.025 or doi: `10.48550/arXiv.2401.15606`
+    // DOI format: alphanumeric characters and .-_/ only
+    processed = processed.replace(
+      /\b(DOI|doi):\s*`?([a-zA-Z0-9.\-_/]+)`?/gi,
+      (match, prefix, doi) => {
+        return `[${prefix}: ${doi}](https://doi.org/${doi})`;
+      }
+    );
     
     // Convert <pre><code> blocks to markdown code blocks
     processed = processed.replace(
@@ -256,10 +268,30 @@ function MarkdownMessage({ content, isUser = false }: MarkdownMessageProps) {
         .katex-display > .katex {
           text-align: center;
         }
+        .citation-link {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 1.25rem;
+          height: 1.25rem;
+          padding: 0 0.25rem;
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: white;
+          background-color: #3b82f6;
+          border-radius: 9999px;
+          text-decoration: none;
+          transition: background-color 0.2s;
+          cursor: pointer;
+          margin: 0 0.125rem;
+        }
+        .citation-link:hover {
+          background-color: #2563eb;
+        }
       `}</style>
       <ReactMarkdown
-        remarkPlugins={[remarkMath, remarkGfm]}
-        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={[remarkMath, remarkGfm, [remarkFootnotes as any, { inlineNotes: true }]]}
+        rehypePlugins={[rehypeKatex, rehypeRaw]}
         components={{
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           code(props: any) {
@@ -422,6 +454,31 @@ function MarkdownMessage({ content, isUser = false }: MarkdownMessageProps) {
           },
           em({ children }) {
             return <em className="italic text-gray-700">{children}</em>;
+          },
+          sup({ children }) {
+            // Handle citation superscripts [^1], [^2], etc.
+            const text = String(children);
+            const match = /^\^(\d+)$/.exec(text);
+            if (match) {
+              const citationNum = match[1];
+              return (
+                <sup>
+                  <a
+                    href={`#citation-${citationNum}`}
+                    className="inline-flex items-center justify-center w-5 h-5 text-xs font-semibold text-white bg-blue-500 hover:bg-blue-600 rounded-full transition-colors cursor-pointer no-underline"
+                    title={`查看引用 ${citationNum}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      // You can add custom behavior here, like opening a modal with citation details
+                      console.log(`Citation ${citationNum} clicked`);
+                    }}
+                  >
+                    {citationNum}
+                  </a>
+                </sup>
+              );
+            }
+            return <sup>{children}</sup>;
           },
         }}
       >

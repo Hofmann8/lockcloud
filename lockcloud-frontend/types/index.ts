@@ -31,20 +31,10 @@ export interface File {
   uploader?: User;
 }
 
-// Auth types
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface RegisterRequest {
-  email: string;
-  password: string;
-  name: string;
-  code: string;
-}
-
+// Auth types (SSO-based)
 export interface AuthResponse {
+  success: boolean;
+  message: string;
   token: string;
   user: User;
 }

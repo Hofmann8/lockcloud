@@ -5,6 +5,15 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/Card';
 export default function ChangelogPage() {
   const updates = [
     {
+      date: '2025-11-21',
+      title: 'LockAI 与文件浏览优化',
+      items: [
+        '新增 LockAI 队列功能，防止高并发冲突',
+        '新增文件浏览上一条/下一条功能（来自姜姜的 issue）',
+      ],
+      type: 'improvement',
+    },
+    {
       date: '2025-11-19',
       title: '新增 LockAI 板块',
       items: [

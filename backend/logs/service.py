@@ -4,7 +4,7 @@ Handles creation and querying of file operation logs
 """
 from datetime import datetime
 from flask import request
-from app import db
+from extensions import db
 from logs.models import FileLog, OperationType
 
 

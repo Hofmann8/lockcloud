@@ -2,7 +2,7 @@
 File models for LockCloud
 """
 from datetime import datetime
-from app import db
+from extensions import db
 
 
 class File(db.Model):

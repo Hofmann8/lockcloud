@@ -10,7 +10,6 @@ from exceptions import (
     MissingFieldError,
     InvalidFieldError,
     InvalidEmailFormatError,
-    InvalidEmailDomainError,
     InvalidDirectoryPathError,
     InvalidFileNameError,
     FileSizeLimitExceededError
@@ -88,38 +87,6 @@ def validate_email(field_name='email'):
             
             # Update data with normalized email
             data[field_name] = email
-            
-            return f(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def validate_zju_email(field_name='email'):
-    """
-    Decorator to validate ZJU email domain (@zju.edu.cn)
-    
-    Args:
-        field_name: Name of the email field in request data (default: 'email')
-        
-    Usage:
-        @validate_zju_email()
-        def register():
-            data = request.get_json()
-            # data['email'] is guaranteed to be a @zju.edu.cn email
-    """
-    def decorator(f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            data = request.get_json()
-            
-            if field_name not in data:
-                raise MissingFieldError(field_name)
-            
-            email = data[field_name].strip().lower()
-            
-            # Validate ZJU email domain
-            if not email.endswith('@zju.edu.cn'):
-                raise InvalidEmailDomainError()
             
             return f(*args, **kwargs)
         return wrapper
@@ -235,54 +202,6 @@ def validate_file_size(field_name='size', max_size_mb=500):
                 raise FileSizeLimitExceededError(
                     f'文件大小超过限制 (最大 {max_size_mb}MB)',
                     details={'max_size_mb': max_size_mb, 'size_bytes': size}
-                )
-            
-            return f(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def validate_password(field_name='password', min_length=6, max_length=128):
-    """
-    Decorator to validate password strength
-    
-    Args:
-        field_name: Name of the password field in request data (default: 'password')
-        min_length: Minimum password length (default: 6)
-        max_length: Maximum password length (default: 128)
-        
-    Usage:
-        @validate_password(min_length=8)
-        def register():
-            data = request.get_json()
-            # data['password'] is guaranteed to meet requirements
-    """
-    def decorator(f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            data = request.get_json()
-            
-            if field_name not in data:
-                raise MissingFieldError(field_name)
-            
-            password = data[field_name]
-            
-            # Validate password is a string
-            if not isinstance(password, str):
-                raise InvalidFieldError(field_name, '密码必须是字符串')
-            
-            # Validate minimum length
-            if len(password) < min_length:
-                raise InvalidFieldError(
-                    field_name,
-                    f'密码长度至少为 {min_length} 位'
-                )
-            
-            # Validate maximum length
-            if len(password) > max_length:
-                raise InvalidFieldError(
-                    field_name,
-                    f'密码长度不能超过 {max_length} 位'
                 )
             
             return f(*args, **kwargs)

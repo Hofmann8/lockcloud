@@ -48,32 +48,11 @@ class InvalidCredentialsError(AuthError):
         super().__init__(message, code='AUTH_001', status_code=401, details=details)
 
 
-class InvalidEmailDomainError(AuthError):
-    """Email must be from ZJU domain"""
-    
-    def __init__(self, message='邮箱必须是浙江大学邮箱 (@zju.edu.cn)', details=None):
-        super().__init__(message, code='AUTH_002', status_code=400, details=details)
-
-
-class VerificationCodeExpiredError(AuthError):
-    """Verification code has expired"""
-    
-    def __init__(self, message='验证码已过期', details=None):
-        super().__init__(message, code='AUTH_003', status_code=400, details=details)
-
-
 class TokenExpiredError(AuthError):
     """JWT token has expired"""
     
     def __init__(self, message='登录已过期，请重新登录', details=None):
         super().__init__(message, code='AUTH_004', status_code=401, details=details)
-
-
-class UserAlreadyExistsError(AuthError):
-    """User with this email already exists"""
-    
-    def __init__(self, message='该邮箱已被注册', details=None):
-        super().__init__(message, code='AUTH_005', status_code=409, details=details)
 
 
 class AccountDisabledError(AuthError):

@@ -1,22 +1,72 @@
 import os
+import logging
+from logging.handlers import RotatingFileHandler
 from flask import Flask, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-from flask_mail import Mail
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from config import config
+from extensions import db, jwt, mail, limiter
 
-# Initialize extensions
-db = SQLAlchemy()
-jwt = JWTManager()
-mail = Mail()
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["100 per minute"],
-    storage_uri="memory://"
-)
+
+def configure_logging(app):
+    """配置详细的日志系统"""
+    # 确保日志目录存在
+    log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # 设置日志格式
+    detailed_formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)s in %(name)s (%(filename)s:%(lineno)d): %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # 1. AI 专用日志文件（包含联网搜索）
+    ai_log_file = os.path.join(log_dir, 'ai_service.log')
+    ai_handler = RotatingFileHandler(
+        ai_log_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    ai_handler.setLevel(logging.DEBUG)
+    ai_handler.setFormatter(detailed_formatter)
+    
+    # 配置 AI 相关模块的日志
+    ai_logger = logging.getLogger('ai')
+    ai_logger.setLevel(logging.DEBUG)
+    ai_logger.addHandler(ai_handler)
+    
+    # 2. 应用主日志文件
+    app_log_file = os.path.join(log_dir, 'app.log')
+    app_handler = RotatingFileHandler(
+        app_log_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    app_handler.setLevel(logging.INFO)
+    app_handler.setFormatter(detailed_formatter)
+    
+    # 配置 Flask 应用日志
+    app.logger.setLevel(logging.INFO)
+    app.logger.addHandler(app_handler)
+    app.logger.addHandler(ai_handler)  # 也输出到 AI 日志
+    
+    # 3. 控制台输出（生产环境也保留，方便调试）
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)s: %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    console_handler.setFormatter(console_formatter)
+    app.logger.addHandler(console_handler)
+    
+    # 记录启动信息
+    app.logger.info('=' * 80)
+    app.logger.info('LockCloud 日志系统已启动')
+    app.logger.info(f'AI 日志文件: {ai_log_file}')
+    app.logger.info(f'应用日志文件: {app_log_file}')
+    app.logger.info('=' * 80)
 
 
 def configure_security_headers(app):
@@ -51,6 +101,9 @@ def create_app(config_name=None):
     
     app = Flask(__name__)
     app.config.from_object(config[config_name])
+    
+    # 配置日志系统（在初始化其他组件之前）
+    configure_logging(app)
     
     # Initialize extensions with app
     db.init_app(app)
@@ -104,7 +157,7 @@ def create_app(config_name=None):
     
     # Import models to register them with SQLAlchemy
     with app.app_context():
-        from auth.models import User, VerificationCode
+        from auth.models import User
         from files.models import File, TagPreset
         from logs.models import FileLog
         from ai.models import AIConversation, AIMessage
@@ -308,9 +361,6 @@ def register_error_handlers(app):
         }), 500
 
 
-# Create app instance
-app = create_app()
-
-
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app = create_app()
+    app.run(debug=True, host='0.0.0.0', port=5001)

@@ -3,7 +3,7 @@ Logging models for LockCloud
 """
 import enum
 from datetime import datetime
-from app import db
+from extensions import db
 
 
 class OperationType(enum.Enum):

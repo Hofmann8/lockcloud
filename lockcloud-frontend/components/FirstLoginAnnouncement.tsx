@@ -5,7 +5,7 @@ import { Modal } from './Modal';
 import { Button } from './Button';
 
 const ANNOUNCEMENT_KEY = 'lockcloud_announcement_seen';
-const ANNOUNCEMENT_VERSION = 'v0.5.0'; // 更新此版本号可以让所有用户重新看到公告
+const ANNOUNCEMENT_VERSION = 'v0.6.5'; // 更新此版本号可以让所有用户重新看到公告
 const NEVER_SHOW_KEY = 'lockcloud_announcement_never_show';
 
 export function FirstLoginAnnouncement() {
@@ -46,7 +46,7 @@ export function FirstLoginAnnouncement() {
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="🎉 系统更新 v0.5.0"
+      title="🎉 系统更新 v0.6.5"
       size="lg"
       closeOnBackdrop={false}
     >
@@ -71,10 +71,10 @@ export function FirstLoginAnnouncement() {
           
           <div className="text-sm text-gray-700 space-y-2 leading-relaxed">
             <div className="bg-white rounded-lg p-3 border border-blue-100">
-              <p className="font-medium text-green-600 mb-1.5">✨ 新增功能</p>
+              <p className="font-medium text-blue-600 mb-1.5">🔧 优化改进</p>
               <ul className="list-disc list-inside space-y-0.5 text-gray-600 ml-2 text-xs">
-                <li>新增 <span className="font-semibold text-blue-600">LockAI 板块</span>，提供 AI 学习和测试功能</li>
-                <li>已上传文件支持编辑和移动操作</li>
+                <li>新增 <span className="font-semibold text-blue-600">LockAI 队列功能</span>，防止高并发冲突</li>
+                <li>新增文件浏览上一条/下一条功能（来自姜姜的 issue）</li>
               </ul>
             </div>
           </div>
@@ -134,7 +134,7 @@ export function FirstLoginAnnouncement() {
         {/* 签名和日期 */}
         <div className="text-right text-xs text-gray-500 pt-2 border-t border-gray-200">
           <p className="font-medium text-blue-500">Hofmann</p>
-          <p>2025 年 11 月 19 日</p>
+          <p>2025 年 11 月 21 日</p>
         </div>
 
         {/* 确认按钮 */}

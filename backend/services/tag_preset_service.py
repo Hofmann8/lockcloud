@@ -4,7 +4,7 @@ Handles management of predefined tag options for file categorization
 """
 from typing import List, Optional
 from flask import current_app
-from app import db
+from extensions import db
 from files.models import TagPreset
 
 

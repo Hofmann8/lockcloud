@@ -39,6 +39,10 @@ class Config:
     CORS_ALLOW_HEADERS = ['Content-Type', 'Authorization']
     CORS_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
     
+    # SSO Configuration (Funk & Love Auth Service)
+    SSO_AUTH_API_URL = os.environ.get('SSO_AUTH_API_URL', 'https://auth-api.funk-and.love')
+    SSO_AUTH_FRONTEND_URL = os.environ.get('SSO_AUTH_FRONTEND_URL', 'https://auth.funk-and.love')
+    
     # Rate Limiting
     RATELIMIT_ENABLED = True
     RATELIMIT_STORAGE_URL = os.environ.get('RATELIMIT_STORAGE_URL', 'memory://')
