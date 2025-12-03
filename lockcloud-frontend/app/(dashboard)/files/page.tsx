@@ -1,10 +1,11 @@
 'use client';
 
-import { Suspense, useState, useCallback, useEffect, useMemo } from 'react';
+import { Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { listFiles } from '@/lib/api/files';
-import { FileFilters, File } from '@/types';
+import { searchTags } from '@/lib/api/tags';
+import { FileFilters, File, TagWithCount } from '@/types';
 import { FileGrid } from '@/components/FileGrid';
 import { FileGridSkeleton } from '@/components/SkeletonLoader';
 import { Pagination } from '@/components/Pagination';
@@ -29,15 +30,50 @@ function FilesPageContent() {
   
   const [tagInput, setTagInput] = useState('');
   const [isDirectoryEditorOpen, setIsDirectoryEditorOpen] = useState(false);
+  const [isTagDropdownOpen, setIsTagDropdownOpen] = useState(false);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  const tagDropdownRef = useRef<HTMLDivElement>(null);
   
   const { data: activityTypes = [] } = useActivityTypes();
   
-  // Get current filter values from URL
+  // Get current filter values from URL - must be before suggestedTags
   const currentMediaType = (searchParams.get('media_type') as MediaType) || 'all';
   const currentTags = useMemo(() => 
     searchParams.get('tags')?.split(',').filter(Boolean) || [], 
     [searchParams]
   );
+
+  // Search tags when input changes
+  const { data: searchResults = [] } = useQuery({
+    queryKey: ['tags', 'search', tagInput],
+    queryFn: () => searchTags(tagInput, 5),
+    enabled: tagInput.trim().length > 0,
+    staleTime: 10000,
+  });
+
+  // Only show suggestions when user is typing, filter out count=0 tags, max 3 results
+  const suggestedTags = useMemo(() => {
+    if (!tagInput.trim()) return [];
+    return searchResults
+      .filter((tag: TagWithCount) => tag.count > 0 && !currentTags.includes(tag.name))
+      .slice(0, 3);
+  }, [tagInput, searchResults, currentTags]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        tagDropdownRef.current &&
+        !tagDropdownRef.current.contains(event.target as Node) &&
+        tagInputRef.current &&
+        !tagInputRef.current.contains(event.target as Node)
+      ) {
+        setIsTagDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   
   // Derive filters directly from URL parameters
   const filters: FileFilters = {
@@ -79,16 +115,18 @@ function FilesPageContent() {
   }, [searchParams, router]);
 
   // Add tag
-  const handleAddTag = useCallback(() => {
-    if (!tagInput.trim()) return;
+  const handleAddTag = useCallback((tagName?: string) => {
+    const tag = tagName || tagInput.trim();
+    if (!tag) return;
     const params = new URLSearchParams(searchParams.toString());
-    const newTags = [...currentTags, ...tagInput.split(',').map(t => t.trim()).filter(t => t && !currentTags.includes(t))];
+    const newTags = [...currentTags, ...tag.split(',').map(t => t.trim()).filter(t => t && !currentTags.includes(t))];
     if (newTags.length > 0) {
       params.set('tags', newTags.join(','));
     }
     params.set('page', '1');
     router.push(`/files?${params.toString()}`);
     setTagInput('');
+    setIsTagDropdownOpen(false);
   }, [tagInput, currentTags, searchParams, router]);
 
   // Remove tag
@@ -250,17 +288,87 @@ function FilesPageContent() {
             </span>
           ))}
 
-          {/* Tag Input */}
-          <div className="flex items-center">
+          {/* Tag Input with Autocomplete */}
+          <div className="relative flex items-center gap-1">
             <input
+              ref={tagInputRef}
               type="text"
               value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
+              onChange={(e) => {
+                setTagInput(e.target.value);
+                setIsTagDropdownOpen(true);
+              }}
+              onFocus={() => setIsTagDropdownOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (suggestedTags.length > 0) {
+                    handleAddTag(suggestedTags[0].name);
+                  } else {
+                    handleAddTag();
+                  }
+                } else if (e.key === 'Escape') {
+                  setIsTagDropdownOpen(false);
+                }
+              }}
               placeholder="+ 标签"
-              className="w-16 sm:w-20 px-2 py-1 text-xs border border-gray-200 rounded-md 
+              className="w-20 sm:w-24 px-2 py-1 text-xs border border-gray-200 rounded-md 
                 focus:outline-none focus:border-orange-500 placeholder:text-gray-400"
             />
+            <button
+              onClick={() => {
+                if (suggestedTags.length > 0 && tagInput.trim()) {
+                  handleAddTag(suggestedTags[0].name);
+                } else {
+                  handleAddTag();
+                }
+              }}
+              disabled={!tagInput.trim()}
+              className="px-2 py-1 text-xs bg-orange-500 text-white rounded-md hover:bg-orange-600 
+                transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="添加标签"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+            
+            {/* Tag Suggestions Dropdown */}
+            {isTagDropdownOpen && suggestedTags.length > 0 && (
+              <div
+                ref={tagDropdownRef}
+                className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto z-50"
+              >
+                {suggestedTags.map((tag: TagWithCount) => {
+                  const lowerName = tag.name.toLowerCase();
+                  const lowerQuery = tagInput.toLowerCase();
+                  const matchIndex = lowerName.indexOf(lowerQuery);
+                  
+                  return (
+                    <button
+                      key={tag.id}
+                      onClick={() => handleAddTag(tag.name)}
+                      className="w-full px-3 py-2 text-left hover:bg-orange-50 transition-colors flex items-center justify-between text-xs"
+                    >
+                      <span className="text-gray-800">
+                        {matchIndex >= 0 && tagInput ? (
+                          <>
+                            {tag.name.slice(0, matchIndex)}
+                            <span className="bg-orange-100 text-orange-600 font-medium">
+                              {tag.name.slice(matchIndex, matchIndex + tagInput.length)}
+                            </span>
+                            {tag.name.slice(matchIndex + tagInput.length)}
+                          </>
+                        ) : (
+                          tag.name
+                        )}
+                      </span>
+                      <span className="text-gray-400">{tag.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -323,7 +431,7 @@ function FilesPageContent() {
         </>
       )}
 
-      <BatchActionToolbar onOperationComplete={handleFileUpdate} />
+      <BatchActionToolbar onOperationComplete={handleFileUpdate} files={data?.files || []} />
       
       {/* Activity Directory Editor Modal */}
       {isActivityDirectory && (

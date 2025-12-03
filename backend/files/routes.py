@@ -1206,6 +1206,79 @@ def update_file(file_id):
                 file.activity_name = activity_name
                 changes_made = True
         
+        # Track if filename changed (for S3 rename)
+        filename_changed = False
+        old_filename = file.filename
+        
+        # Update filename if provided
+        if 'filename' in data:
+            new_filename = data['filename'].strip() if data['filename'] else None
+            
+            if not new_filename:
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': '文件名不能为空'
+                    }
+                }), 400
+            
+            # Validate filename length
+            if len(new_filename) > 255:
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': '文件名过长（最多255字符）'
+                    }
+                }), 400
+            
+            # Check for invalid characters
+            invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+            if any(c in new_filename for c in invalid_chars):
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': f'文件名包含非法字符: {", ".join(invalid_chars)}'
+                    }
+                }), 400
+            
+            if file.filename != new_filename:
+                file.filename = new_filename
+                filename_changed = True
+                changes_made = True
+        
+        # Update free_tags if provided
+        tags_updated = False
+        if 'free_tags' in data:
+            from services.tag_service import tag_service
+            
+            new_tags = data['free_tags']
+            if not isinstance(new_tags, list):
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': 'free_tags 必须是数组'
+                    }
+                }), 400
+            
+            # Get current tag names
+            current_tag_names = set(t.name for t in file.tags)
+            new_tag_names = set(t.strip() for t in new_tags if t and t.strip())
+            
+            # Remove tags that are no longer in the list
+            for tag in list(file.tags):
+                if tag.name not in new_tag_names:
+                    tag_service.remove_tag_from_file(file.id, tag.id)
+                    tags_updated = True
+            
+            # Add new tags
+            for tag_name in new_tag_names:
+                if tag_name not in current_tag_names:
+                    tag_service.add_tag_to_file(file.id, tag_name, current_user_id)
+                    tags_updated = True
+            
+            if tags_updated:
+                changes_made = True
+        
         if not changes_made:
             return jsonify({
                 'success': True,
@@ -1213,20 +1286,23 @@ def update_file(file_id):
                 'file': file.to_dict(include_uploader=True)
             }), 200
         
-        # Update directory path and S3 key if activity_type or activity_date changed
+        # Update directory path and S3 key if activity_type, activity_date, or filename changed
         if file.activity_date and file.activity_type:
             year = file.activity_date.year
             month = f"{file.activity_date.month:02d}"
             new_directory = f"{file.activity_type}/{year}/{month}"
             
-            if new_directory != old_directory:
-                # Update directory
-                file.directory = new_directory
+            directory_changed = new_directory != old_directory
+            
+            # Need to move/rename file in S3 if directory or filename changed
+            if directory_changed or filename_changed:
+                # Update directory if changed
+                if directory_changed:
+                    file.directory = new_directory
                 
-                # Update S3 key
+                # Build new S3 key
                 old_s3_key = file.s3_key
-                filename = file.filename
-                new_s3_key = f"{new_directory}/{filename}"
+                new_s3_key = f"{file.directory}/{file.filename}"
                 
                 # Check if new location already has a file with same name
                 existing_file = File.query.filter(
@@ -1238,11 +1314,11 @@ def update_file(file_id):
                     return jsonify({
                         'error': {
                             'code': 'FILE_005',
-                            'message': f'目标目录已存在同名文件: {filename}'
+                            'message': f'目标位置已存在同名文件: {file.filename}'
                         }
                     }), 400
                 
-                # Move file in S3
+                # Move/rename file in S3
                 try:
                     s3_service.copy_file(old_s3_key, new_s3_key)
                     s3_service.delete_file(old_s3_key)
@@ -1254,11 +1330,11 @@ def update_file(file_id):
                     file.public_url = f"{endpoint}/{bucket}/{new_s3_key}"
                     
                 except Exception as e:
-                    current_app.logger.error(f'Failed to move file in S3: {str(e)}')
+                    current_app.logger.error(f'Failed to move/rename file in S3: {str(e)}')
                     return jsonify({
                         'error': {
                             'code': 'S3_001',
-                            'message': '移动文件失败'
+                            'message': '移动/重命名文件失败'
                         }
                     }), 500
         
@@ -2305,6 +2381,259 @@ def batch_remove_tag():
         }), 500
 
 
+@files_bp.route('/batch/update', methods=['POST'])
+@jwt_required()
+def batch_update_files():
+    """
+    Batch update multiple files (owner or admin only)
+    
+    POST /api/files/batch/update
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "file_ids": [1, 2, 3],
+        "updates": {
+            "activity_date": "2025-03-20",
+            "activity_type": "performance",
+            "activity_name": "新活动名称",
+            "free_tags": ["tag1", "tag2"],
+            "tag_mode": "add" | "replace"
+        }
+    }
+    
+    Returns:
+        200: All files updated successfully
+        207: Partial success (some files failed)
+        400: Invalid input
+        401: Unauthorized
+        500: Update failed
+    """
+    try:
+        from auth.models import User
+        from services.tag_service import tag_service
+        from services.tag_preset_service import tag_preset_service
+        
+        current_user_id = int(get_jwt_identity())
+        current_user = User.query.get(current_user_id)
+        is_admin = current_user and current_user.is_admin
+        
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '请求数据不能为空'
+                }
+            }), 400
+        
+        file_ids = data.get('file_ids', [])
+        updates = data.get('updates', {})
+        
+        if not file_ids:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '文件ID列表不能为空'
+                }
+            }), 400
+        
+        if not updates:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '更新内容不能为空'
+                }
+            }), 400
+        
+        # Validate batch size limit (max 100)
+        if len(file_ids) > 100:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_002',
+                    'message': '批量操作限制最多100个文件'
+                }
+            }), 400
+        
+        # Validate activity_type if provided
+        if 'activity_type' in updates and updates['activity_type']:
+            activity_type_presets = tag_preset_service.get_active_presets('activity_type')
+            valid_activity_types = [preset.value for preset in activity_type_presets]
+            if updates['activity_type'] not in valid_activity_types:
+                return jsonify({
+                    'error': {
+                        'code': 'FILE_008',
+                        'message': f'活动类型无效。有效选项: {", ".join(valid_activity_types)}'
+                    }
+                }), 400
+        
+        # Validate activity_date if provided
+        new_activity_date = None
+        if 'activity_date' in updates and updates['activity_date']:
+            try:
+                new_activity_date = datetime.fromisoformat(updates['activity_date']).date()
+            except ValueError:
+                return jsonify({
+                    'error': {
+                        'code': 'FILE_007',
+                        'message': '活动日期格式无效，请使用 ISO 格式 (YYYY-MM-DD)'
+                    }
+                }), 400
+        
+        # Get tag mode
+        tag_mode = updates.get('tag_mode', 'add')  # 'add' or 'replace'
+        new_tags = updates.get('free_tags', [])
+        
+        succeeded = []
+        failed = []
+        
+        # Get all files
+        files = File.query.filter(File.id.in_(file_ids)).all()
+        file_map = {f.id: f for f in files}
+        
+        for file_id in file_ids:
+            file = file_map.get(file_id)
+            
+            if not file:
+                failed.append({
+                    'file_id': file_id,
+                    'error': '文件不存在'
+                })
+                continue
+            
+            # Check permission
+            if file.uploader_id != current_user_id and not is_admin:
+                failed.append({
+                    'file_id': file_id,
+                    'error': '无权编辑此文件'
+                })
+                continue
+            
+            try:
+                # Apply updates
+                if new_activity_date:
+                    file.activity_date = new_activity_date
+                
+                if 'activity_type' in updates and updates['activity_type']:
+                    file.activity_type = updates['activity_type']
+                
+                if 'activity_name' in updates:
+                    file.activity_name = updates['activity_name'] if updates['activity_name'] else None
+                
+                # Handle tags
+                if new_tags:
+                    if tag_mode == 'replace':
+                        # Remove all existing tags
+                        for tag in list(file.tags):
+                            tag_service.remove_tag_from_file(file.id, tag.id)
+                    
+                    # Add new tags
+                    current_tag_names = set(t.name for t in file.tags)
+                    for tag_name in new_tags:
+                        tag_name = tag_name.strip()
+                        if tag_name and tag_name not in current_tag_names:
+                            tag_service.add_tag_to_file(file.id, tag_name, current_user_id)
+                
+                # Update directory path if needed
+                if file.activity_date and file.activity_type:
+                    year = file.activity_date.year
+                    month = f"{file.activity_date.month:02d}"
+                    new_directory = f"{file.activity_type}/{year}/{month}"
+                    
+                    if new_directory != file.directory:
+                        old_s3_key = file.s3_key
+                        file.directory = new_directory
+                        new_s3_key = f"{new_directory}/{file.filename}"
+                        
+                        # Check for duplicate
+                        existing = File.query.filter(
+                            File.s3_key == new_s3_key,
+                            File.id != file.id
+                        ).first()
+                        
+                        if existing:
+                            failed.append({
+                                'file_id': file_id,
+                                'error': f'目标位置已存在同名文件: {file.filename}'
+                            })
+                            db.session.rollback()
+                            continue
+                        
+                        # Move file in S3
+                        try:
+                            s3_service.copy_file(old_s3_key, new_s3_key)
+                            s3_service.delete_file(old_s3_key)
+                            file.s3_key = new_s3_key
+                            
+                            bucket = s3_service.get_bucket_name()
+                            endpoint = current_app.config.get('S3_ENDPOINT', 'https://s3.bitiful.net')
+                            file.public_url = f"{endpoint}/{bucket}/{new_s3_key}"
+                        except Exception as e:
+                            current_app.logger.error(f'Failed to move file {file_id} in S3: {str(e)}')
+                            failed.append({
+                                'file_id': file_id,
+                                'error': '移动文件失败'
+                            })
+                            db.session.rollback()
+                            continue
+                
+                succeeded.append(file_id)
+                
+            except Exception as e:
+                current_app.logger.error(f'Error updating file {file_id}: {str(e)}')
+                failed.append({
+                    'file_id': file_id,
+                    'error': str(e)
+                })
+        
+        # Commit all successful updates
+        if succeeded:
+            db.session.commit()
+        
+        current_app.logger.info(
+            f'User {current_user_id} batch updated {len(succeeded)} files, {len(failed)} failed'
+        )
+        
+        # Return appropriate response
+        if len(failed) == 0:
+            return jsonify({
+                'success': True,
+                'message': f'成功更新 {len(succeeded)} 个文件',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 200
+        elif len(succeeded) == 0:
+            return jsonify({
+                'success': False,
+                'message': '所有文件更新失败',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 400
+        else:
+            return jsonify({
+                'success': False,
+                'code': 'PARTIAL_SUCCESS',
+                'message': f'部分成功: {len(succeeded)} 成功, {len(failed)} 失败',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 207
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error in batch update: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '批量更新失败，请稍后重试'
+            }
+        }), 500
+
+
 # ============================================================================
 # Activity Names Endpoints
 # ============================================================================
@@ -2640,13 +2969,9 @@ def update_activity_directory():
             if new_activity_name:
                 file.activity_name = new_activity_name
             if new_activity_type:
+                # Only update the activity_type field, not directory or s3_key
+                # S3 files remain in their original location
                 file.activity_type = new_activity_type
-                # Update directory path
-                year = activity_date.year
-                month = f"{activity_date.month:02d}"
-                file.directory = f"{new_activity_type}/{year}/{month}"
-                # Update s3_key
-                file.s3_key = f"{file.directory}/{file.filename}"
             updated_count += 1
         
         db.session.commit()

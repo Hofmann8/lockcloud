@@ -39,7 +39,7 @@ export function Navbar() {
   const navLinks = [
     { href: '/files', label: '文件' },
     { href: '/upload', label: '上传' },
-    { href: '/requests', label: '请求', badge: pendingCount },
+    { href: '/requests', label: '请求', badge: pendingCount || undefined },
     { href: '/changelog', label: '更新日志' },
     ...(user?.is_admin ? [{ href: '/admin', label: '管理' }] : []),
   ];

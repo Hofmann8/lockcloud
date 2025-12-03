@@ -40,21 +40,46 @@ function RequestCard({
     rejected: '已拒绝',
   };
 
+  const typeLabels = {
+    delete: '删除请求',
+    edit: '编辑请求',
+    directory_edit: '目录编辑',
+  };
+
+  const typeColors = {
+    delete: 'bg-red-50 text-red-600',
+    edit: 'bg-blue-50 text-blue-600',
+    directory_edit: 'bg-purple-50 text-purple-600',
+  };
+
+  // Get display name for the request target
+  const getTargetName = () => {
+    if (request.request_type === 'directory_edit' && request.directory_info) {
+      return `📁 ${request.directory_info.activity_name}`;
+    }
+    return request.file?.filename || '文件已删除';
+  };
+
   return (
     <Card variant="bordered" padding="md" className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${request.request_type === 'delete' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
-              {request.request_type === 'delete' ? '删除请求' : '编辑请求'}
+            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${typeColors[request.request_type]}`}>
+              {typeLabels[request.request_type]}
             </span>
             <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusColors[request.status]}`}>
               {statusLabels[request.status]}
             </span>
           </div>
           <p className="mt-2 font-medium text-sm text-primary-black truncate">
-            {request.file?.filename || '文件已删除'}
+            {getTargetName()}
           </p>
+          {request.request_type === 'directory_edit' && request.directory_info && (
+            <p className="text-xs text-accent-gray mt-0.5">
+              {request.directory_info.activity_date} · {request.directory_info.activity_type}
+            </p>
+          )}
           <p className="text-xs text-accent-gray mt-1">
             {isReceived ? `来自: ${request.requester?.name}` : `发送给: ${request.owner?.name}`}
             <span className="mx-2">·</span>
@@ -67,6 +92,9 @@ function RequestCard({
       {request.request_type === 'edit' && request.proposed_changes && (
         <div className="text-xs bg-gray-50 rounded-lg p-2 space-y-1">
           <p className="font-medium text-accent-gray">修改内容:</p>
+          {request.proposed_changes.filename && (
+            <p>文件名: {request.proposed_changes.filename}</p>
+          )}
           {request.proposed_changes.activity_date && (
             <p>活动日期: {request.proposed_changes.activity_date}</p>
           )}
@@ -75,6 +103,25 @@ function RequestCard({
           )}
           {request.proposed_changes.activity_name && (
             <p>活动名称: {request.proposed_changes.activity_name}</p>
+          )}
+          {request.proposed_changes.instructor && (
+            <p>带训老师: {request.proposed_changes.instructor}</p>
+          )}
+          {request.proposed_changes.free_tags && request.proposed_changes.free_tags.length > 0 && (
+            <p>标签: {request.proposed_changes.free_tags.join(', ')}</p>
+          )}
+        </div>
+      )}
+
+      {/* Proposed changes for directory edit requests */}
+      {request.request_type === 'directory_edit' && request.proposed_changes && (
+        <div className="text-xs bg-gray-50 rounded-lg p-2 space-y-1">
+          <p className="font-medium text-accent-gray">修改内容:</p>
+          {request.proposed_changes.new_activity_name && (
+            <p>新活动名称: {request.proposed_changes.new_activity_name}</p>
+          )}
+          {request.proposed_changes.new_activity_type && (
+            <p>新活动类型: {request.proposed_changes.new_activity_type}</p>
           )}
         </div>
       )}
@@ -137,11 +184,18 @@ export default function RequestsPage() {
     enabled: activeTab === 'sent',
   });
 
+  const invalidateAllRelatedQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ['requests'] });
+    queryClient.invalidateQueries({ queryKey: ['files'] });
+    queryClient.invalidateQueries({ queryKey: ['directories'] });
+    queryClient.invalidateQueries({ queryKey: ['activity-directory'] });
+  };
+
   const approveMutation = useMutation({
     mutationFn: (requestId: number) => approveRequest(requestId),
     onSuccess: () => {
       toast.success('请求已批准');
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      invalidateAllRelatedQueries();
     },
     onError: () => toast.error('操作失败'),
   });
@@ -150,7 +204,7 @@ export default function RequestsPage() {
     mutationFn: (requestId: number) => rejectRequest(requestId),
     onSuccess: () => {
       toast.success('请求已拒绝');
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      invalidateAllRelatedQueries();
     },
     onError: () => toast.error('操作失败'),
   });

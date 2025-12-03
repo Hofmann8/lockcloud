@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { File, FreeTag } from '@/types';
+import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { useFileStore } from '@/stores/fileStore';
 import { Button } from './Button';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
-import { FileTagEditor } from './FileTagEditor';
+import { EditFileDialog } from './EditFileDialog';
 import { zhCN } from '@/locales/zh-CN';
 import toast from 'react-hot-toast';
 
@@ -17,6 +17,7 @@ interface FileMetadataProps {
 
 export function FileMetadata({ file, onFileUpdate }: FileMetadataProps) {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const user = useAuthStore((state) => state.user);
   const deleteFile = useFileStore((state) => state.deleteFile);
@@ -169,19 +170,22 @@ export function FileMetadata({ file, onFileUpdate }: FileMetadataProps) {
           </div>
         </div>
 
-        {/* Free Tags Section - Requirements 3.4, 8.4 */}
-        <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4 border-t border-accent-gray/20">
-          <FileTagEditor
-            fileId={file.id}
-            tags={file.free_tags || []}
-            onTagsChange={(updatedTags: FreeTag[]) => {
-              // Update will be handled by query invalidation in FileTagEditor
-              onFileUpdate?.();
-            }}
-            showLabel={true}
-            label="自由标签"
-          />
-        </div>
+        {/* Free Tags Display */}
+        {file.free_tags && file.free_tags.length > 0 && (
+          <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4 border-t border-accent-gray/20">
+            <h3 className="text-sm font-semibold text-primary-black">自由标签</h3>
+            <div className="flex flex-wrap gap-2">
+              {file.free_tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="px-2.5 py-1 bg-accent-blue/10 text-accent-blue rounded-full text-sm"
+                >
+                  {tag.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* File Details */}
         <div className="space-y-2.5 sm:space-y-3 pt-3 sm:pt-4 border-t border-accent-gray/20">
@@ -249,6 +253,22 @@ export function FileMetadata({ file, onFileUpdate }: FileMetadataProps) {
           >
             {zhCN.common.download}
           </Button>
+
+          {/* Edit Button - visible to all users */}
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => setIsEditDialogOpen(true)}
+            fullWidth
+            aria-label={`编辑文件 ${file.filename}`}
+            icon={
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            }
+          >
+            编辑文件
+          </Button>
           
           {/* Delete Button - only visible to file owner */}
           {isOwner && (
@@ -278,6 +298,14 @@ export function FileMetadata({ file, onFileUpdate }: FileMetadataProps) {
         onConfirm={handleDeleteConfirm}
         file={file}
         isDeleting={isDeleting}
+      />
+
+      {/* Edit File Dialog */}
+      <EditFileDialog
+        file={file}
+        isOpen={isEditDialogOpen}
+        onClose={() => setIsEditDialogOpen(false)}
+        onSuccess={() => onFileUpdate?.()}
       />
     </>
   );

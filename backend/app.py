@@ -154,7 +154,7 @@ def create_app(config_name=None):
     from tag_presets.routes import tag_presets_bp
     from admin.routes import admin_bp
     from tags.routes import tags_bp
-    from requests.routes import requests_bp
+    from file_requests.routes import requests_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(files_bp, url_prefix='/api/files')
     app.register_blueprint(logs_bp, url_prefix='/api/logs')

@@ -39,6 +39,7 @@ export { FilterPanel } from './FilterPanel';
 export { TimelineView } from './TimelineView';
 export { SelectableFileCard, BatchSelectionHeader } from './BatchSelection';
 export { BatchActionToolbar } from './BatchActionToolbar';
+export { BatchEditDialog } from './BatchEditDialog';
 
 // Tag Input components
 export { TagInput } from './TagInput';

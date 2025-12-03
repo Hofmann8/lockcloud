@@ -2,15 +2,25 @@ import apiClient from './client';
 
 export interface FileRequestData {
   id: number;
-  file_id: number;
+  file_id: number | null;
   requester_id: number;
   owner_id: number;
-  request_type: 'edit' | 'delete';
+  request_type: 'edit' | 'delete' | 'directory_edit';
   status: 'pending' | 'approved' | 'rejected';
   proposed_changes?: {
     activity_date?: string;
     activity_type?: string;
     activity_name?: string;
+    instructor?: string;
+    filename?: string;
+    free_tags?: string[];
+    new_activity_name?: string;
+    new_activity_type?: string;
+  };
+  directory_info?: {
+    activity_date: string;
+    activity_name: string;
+    activity_type: string;
   };
   message?: string;
   response_message?: string;
@@ -31,7 +41,14 @@ export interface FileRequestData {
 export const createRequest = async (data: {
   file_id: number;
   request_type: 'edit' | 'delete';
-  proposed_changes?: Record<string, string>;
+  proposed_changes?: {
+    activity_date?: string;
+    activity_type?: string;
+    activity_name?: string;
+    instructor?: string;
+    filename?: string;
+    free_tags?: string[];
+  };
   message?: string;
 }): Promise<FileRequestData> => {
   const response = await apiClient.post('/api/requests', data);
@@ -71,5 +88,20 @@ export const rejectRequest = async (requestId: number, responseMessage?: string)
   const response = await apiClient.post(`/api/requests/${requestId}/reject`, {
     response_message: responseMessage,
   });
+  return response.data.request;
+};
+
+// Create a directory edit request
+export const createDirectoryRequest = async (data: {
+  activity_date: string;
+  activity_name: string;
+  activity_type: string;
+  proposed_changes: {
+    new_activity_name?: string;
+    new_activity_type?: string;
+  };
+  message?: string;
+}): Promise<FileRequestData> => {
+  const response = await apiClient.post('/api/requests/directory', data);
   return response.data.request;
 };

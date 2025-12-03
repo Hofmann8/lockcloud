@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal } from './Modal';
 import { Button } from './Button';
 import { getActivityDirectoryInfo, updateActivityDirectory } from '@/lib/api/files';
+import { createDirectoryRequest } from '@/lib/api/requests';
 import { useActivityTypes } from '@/lib/hooks/useTagPresets';
 import { showToast } from '@/lib/utils/toast';
 
@@ -86,10 +87,47 @@ export function ActivityDirectoryEditor({
       const axiosError = error as { response?: { data?: { need_request?: boolean; error?: { message?: string } } } };
       if (axiosError.response?.data?.need_request) {
         showToast.error('您不是该目录的所有者，需要提交修改申请');
-        // TODO: 跳转到申请页面
       } else {
         showToast.error(axiosError.response?.data?.error?.message || '更新失败');
       }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmitRequest = async () => {
+    if (!directory) return;
+
+    const hasChanges = newActivityName !== activityName || newActivityType !== activityType;
+    if (!hasChanges) {
+      showToast.info('没有修改内容');
+      return;
+    }
+
+    if (!newActivityName.trim()) {
+      showToast.error('活动名称不能为空');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await createDirectoryRequest({
+        activity_date: activityDate,
+        activity_name: activityName,
+        activity_type: activityType,
+        proposed_changes: {
+          new_activity_name: newActivityName !== activityName ? newActivityName : undefined,
+          new_activity_type: newActivityType !== activityType ? newActivityType : undefined,
+        },
+      });
+
+      showToast.success('修改申请已提交，等待目录所有者审批');
+      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      onClose();
+    } catch (error: unknown) {
+      console.error('Submit request error:', error);
+      const axiosError = error as { response?: { data?: { error?: { message?: string } } } };
+      showToast.error(axiosError.response?.data?.error?.message || '提交申请失败');
     } finally {
       setIsSubmitting(false);
     }
@@ -134,8 +172,7 @@ export function ActivityDirectoryEditor({
                 type="text"
                 value={newActivityName}
                 onChange={(e) => setNewActivityName(e.target.value)}
-                disabled={!directory.is_owner}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
             </div>
 
@@ -146,8 +183,7 @@ export function ActivityDirectoryEditor({
               <select
                 value={newActivityType}
                 onChange={(e) => setNewActivityType(e.target.value)}
-                disabled={!directory.is_owner}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               >
                 {activityTypes.map((type) => (
                   <option key={type.id} value={type.value}>
@@ -175,10 +211,9 @@ export function ActivityDirectoryEditor({
             ) : (
               <Button
                 variant="primary"
-                onClick={() => {
-                  showToast.info('申请功能开发中');
-                  // TODO: 实现申请功能
-                }}
+                onClick={handleSubmitRequest}
+                loading={isSubmitting}
+                disabled={isSubmitting || (newActivityName === activityName && newActivityType === activityType)}
               >
                 提交申请
               </Button>

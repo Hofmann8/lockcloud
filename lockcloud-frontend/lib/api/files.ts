@@ -99,7 +99,7 @@ export const getDirectories = async (): Promise<{ directories: DirectoryNode[] }
 };
 
 /**
- * Update file metadata (activity_date, activity_type, activity_name)
+ * Update file metadata
  */
 export const updateFile = async (
   fileId: number,
@@ -107,6 +107,9 @@ export const updateFile = async (
     activity_date?: string;
     activity_type?: string;
     activity_name?: string;
+    instructor?: string;
+    filename?: string;
+    free_tags?: string[];
   }
 ): Promise<File> => {
   const response = await apiClient.patch(`/api/files/${fileId}`, data);
@@ -218,6 +221,70 @@ export const getActivityNamesByDate = async (
   return response.data;
 };
 
+
+/**
+ * Batch update data for multiple files
+ */
+export interface BatchUpdateData {
+  activity_date?: string;
+  activity_type?: string;
+  activity_name?: string;
+  free_tags?: string[];
+  tag_mode?: 'add' | 'replace';
+}
+
+/**
+ * Batch update result
+ */
+export interface BatchUpdateResult {
+  success: boolean;
+  code?: string;
+  message?: string;
+  results?: {
+    succeeded: number[];
+    failed: Array<{
+      file_id: number;
+      error: string;
+    }>;
+  };
+}
+
+/**
+ * Batch update multiple files (owner or admin only)
+ * @param fileIds Array of file IDs to update (max 100)
+ * @param updates Update data to apply
+ */
+export const batchUpdateFiles = async (
+  fileIds: number[],
+  updates: BatchUpdateData
+): Promise<BatchUpdateResult> => {
+  const response = await apiClient.post('/api/files/batch/update', {
+    file_ids: fileIds,
+    updates,
+  });
+  return response.data;
+};
+
+/**
+ * Batch create edit requests for multiple files (for non-owners)
+ * @param fileIds Array of file IDs
+ * @param proposedChanges Proposed changes
+ */
+export const batchCreateRequests = async (
+  fileIds: number[],
+  proposedChanges: {
+    activity_date?: string;
+    activity_type?: string;
+    activity_name?: string;
+    free_tags?: string[];
+  }
+): Promise<BatchUpdateResult> => {
+  const response = await apiClient.post('/api/requests/batch', {
+    file_ids: fileIds,
+    proposed_changes: proposedChanges,
+  });
+  return response.data;
+};
 
 /**
  * Activity directory information

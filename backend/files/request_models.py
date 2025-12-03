@@ -11,11 +11,12 @@ class FileRequest(db.Model):
     __tablename__ = 'file_requests'
     
     id = db.Column(db.Integer, primary_key=True)
-    file_id = db.Column(db.Integer, db.ForeignKey('files.id', ondelete='CASCADE'), nullable=False)
+    # file_id is nullable for directory requests
+    file_id = db.Column(db.Integer, db.ForeignKey('files.id', ondelete='CASCADE'), nullable=True)
     requester_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     
-    # Request type: 'edit' or 'delete'
+    # Request type: 'edit', 'delete', or 'directory_edit'
     request_type = db.Column(db.String(20), nullable=False)
     
     # Status: 'pending', 'approved', 'rejected'
@@ -23,6 +24,14 @@ class FileRequest(db.Model):
     
     # For edit requests: JSON of proposed changes
     proposed_changes = db.Column(db.JSON, nullable=True)
+    
+    # For directory requests: store directory info
+    directory_info = db.Column(db.JSON, nullable=True)
+    # directory_info format: {
+    #   "activity_date": "2025-03-15",
+    #   "activity_name": "周末团建",
+    #   "activity_type": "team_building"
+    # }
     
     # Optional message from requester
     message = db.Column(db.Text, nullable=True)
@@ -53,6 +62,7 @@ class FileRequest(db.Model):
             'request_type': self.request_type,
             'status': self.status,
             'proposed_changes': self.proposed_changes,
+            'directory_info': self.directory_info,
             'message': self.message,
             'response_message': self.response_message,
             'created_at': self.created_at.isoformat() if self.created_at else None,

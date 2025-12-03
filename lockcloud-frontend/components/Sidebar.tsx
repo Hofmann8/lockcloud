@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as filesApi from '@/lib/api/files';
 import { DirectoryNode } from '@/types';
 
@@ -287,6 +287,7 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   
   // Get current filter values from URL
   const currentYear = searchParams.get('year');
@@ -295,11 +296,17 @@ export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
   const currentActivityName = searchParams.get('activity_name');
   const currentActivityType = searchParams.get('activity_type');
   
-  const { data: directoriesResponse, isLoading, error } = useQuery({
+  const { data: directoriesResponse, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['directories'],
     queryFn: filesApi.getDirectories,
     staleTime: 5 * 60 * 1000,
   });
+
+  const handleRefresh = useCallback(() => {
+    // 同时刷新目录和文件列表
+    refetch();
+    queryClient.invalidateQueries({ queryKey: ['files'] });
+  }, [refetch, queryClient]);
 
   const directories = directoriesResponse?.directories || [];
   
@@ -349,16 +356,33 @@ export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
         </div>
         
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 custom-scrollbar-nav">
-          <Link 
-            href="/files" 
-            className="flex items-center gap-2 px-2 py-2 mb-2 rounded-lg text-black hover:text-orange-500 hover:bg-gray-50 font-medium text-sm transition-colors"
-            onClick={closeMobileSidebar}
-          >
-            <svg className="w-4 h-4 text-orange-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
-            <span>全部文件</span>
-          </Link>
+          <div className="flex items-center justify-between mb-2">
+            <Link 
+              href="/files" 
+              className="flex items-center gap-2 px-2 py-2 rounded-lg text-black hover:text-orange-500 hover:bg-gray-50 font-medium text-sm transition-colors flex-1"
+              onClick={closeMobileSidebar}
+            >
+              <svg className="w-4 h-4 text-orange-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              <span>全部文件</span>
+            </Link>
+            <button
+              onClick={handleRefresh}
+              disabled={isFetching}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-orange-500 hover:bg-gray-100 transition-colors disabled:opacity-50"
+              title="刷新目录"
+            >
+              <svg 
+                className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
           
           {isLoading ? (
             <div className="flex items-center justify-center py-8">

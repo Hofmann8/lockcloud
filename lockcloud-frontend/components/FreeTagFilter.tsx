@@ -124,22 +124,47 @@ export function FreeTagFilter({ selectedTags, onChange, disabled = false }: Free
         </div>
       )}
 
-      {/* Search Input */}
+      {/* Search Input with Add Button */}
       <div className="relative">
-        <input
-          ref={inputRef}
-          type="text"
-          value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setIsDropdownOpen(true);
-          }}
-          onFocus={() => setIsDropdownOpen(true)}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          placeholder="搜索或添加标签..."
-          className="input-functional w-full px-4 py-2 text-base text-primary-black placeholder:text-accent-gray disabled:opacity-50 disabled:cursor-not-allowed"
-        />
+        <div className="flex gap-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setIsDropdownOpen(true);
+            }}
+            onFocus={() => setIsDropdownOpen(true)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            placeholder="搜索或添加标签..."
+            className="input-functional flex-1 px-4 py-2 text-base text-primary-black placeholder:text-accent-gray disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (searchQuery.trim()) {
+                const exactMatch = availableTags.find(
+                  (t) => t.name.toLowerCase() === searchQuery.toLowerCase()
+                );
+                if (exactMatch) {
+                  handleAddTag(exactMatch.name);
+                } else if (availableTags.length > 0) {
+                  handleAddTag(availableTags[0].name);
+                }
+              }
+            }}
+            disabled={disabled || !searchQuery.trim()}
+            className="px-4 py-2 bg-accent-blue text-primary-white rounded-lg hover:bg-accent-blue/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 text-sm font-medium"
+            aria-label="添加标签"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            添加
+          </button>
+        </div>
 
         {/* Dropdown */}
         {isDropdownOpen && availableTags.length > 0 && (
@@ -151,6 +176,7 @@ export function FreeTagFilter({ selectedTags, onChange, disabled = false }: Free
               <TagOption
                 key={tag.id}
                 tag={tag}
+                searchQuery={searchQuery}
                 onSelect={handleAddTag}
               />
             ))}
@@ -178,17 +204,41 @@ export function FreeTagFilter({ selectedTags, onChange, disabled = false }: Free
 
 interface TagOptionProps {
   tag: TagWithCount;
+  searchQuery: string;
   onSelect: (name: string) => void;
 }
 
-function TagOption({ tag, onSelect }: TagOptionProps) {
+function TagOption({ tag, searchQuery, onSelect }: TagOptionProps) {
+  // Highlight matching text
+  const highlightMatch = (text: string, query: string) => {
+    if (!query.trim()) return <span>{text}</span>;
+    
+    const lowerText = text.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const index = lowerText.indexOf(lowerQuery);
+    
+    if (index === -1) return <span>{text}</span>;
+    
+    const before = text.slice(0, index);
+    const match = text.slice(index, index + query.length);
+    const after = text.slice(index + query.length);
+    
+    return (
+      <>
+        {before}
+        <span className="bg-accent-blue/20 text-accent-blue font-medium">{match}</span>
+        {after}
+      </>
+    );
+  };
+
   return (
     <button
       type="button"
       onClick={() => onSelect(tag.name)}
       className="w-full px-4 py-2 text-left hover:bg-accent-blue/5 transition-colors flex items-center justify-between"
     >
-      <span className="text-sm text-primary-black">{tag.name}</span>
+      <span className="text-sm text-primary-black">{highlightMatch(tag.name, searchQuery)}</span>
       <span className="text-xs text-accent-gray">{tag.count} 个文件</span>
     </button>
   );
