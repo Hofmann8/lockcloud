@@ -5,7 +5,7 @@ export interface UploadTask {
   files: UploadFileItem[];
   activityDate: string;
   activityType: string;
-  instructor: string;
+  activityName?: string;
   status: 'pending' | 'uploading' | 'completed' | 'failed';
   createdAt: Date;
   completedAt?: Date;
@@ -31,5 +31,5 @@ export interface CreateUploadTaskRequest {
   }>;
   activityDate: string;
   activityType: string;
-  instructor: string;
+  activityName?: string;
 }

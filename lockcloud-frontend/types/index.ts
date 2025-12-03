@@ -33,8 +33,6 @@ export interface File {
   activity_type?: string;
   activity_type_display?: string;
   activity_name?: string;
-  instructor?: string;
-  instructor_display?: string;
   is_legacy: boolean;
   uploader_id: number;
   uploaded_at: string;
@@ -70,7 +68,7 @@ export interface UploadUrlRequest {
   size: number;
   activity_date: string;
   activity_type: string;
-  instructor: string;
+  activity_name?: string;
   custom_filename?: string;
 }
 
@@ -88,7 +86,7 @@ export interface FileConfirmRequest {
   original_filename: string;
   activity_date: string;
   activity_type: string;
-  instructor: string;
+  activity_name?: string;
 }
 
 // Log types
@@ -110,7 +108,6 @@ export interface FileFilters {
   activity_type?: string;
   activity_name?: string;
   activity_date?: string;  // Specific date filter
-  instructor?: string;
   date_from?: string;
   date_to?: string;
   uploader_id?: number;
@@ -139,7 +136,7 @@ export interface DirectoryNode {
 // Tag Preset types
 export interface TagPreset {
   id: number;
-  category: 'activity_type' | 'instructor';
+  category: 'activity_type';
   value: string;
   display_name: string;
   is_active: boolean;
@@ -152,7 +149,7 @@ export interface TagPresetsResponse {
 }
 
 export interface AddTagPresetRequest {
-  category: 'activity_type' | 'instructor';
+  category: 'activity_type';
   value: string;
   display_name: string;
 }
@@ -160,7 +157,7 @@ export interface AddTagPresetRequest {
 export interface UpdateFileTagsRequest {
   activity_date: string;
   activity_type: string;
-  instructor: string;
+  activity_name?: string;
 }
 
 // Timeline types

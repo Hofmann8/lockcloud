@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { FileFilters } from '@/types';
-import { useActivityTypes, useInstructors } from '@/lib/hooks/useTagPresets';
+import { useActivityTypes } from '@/lib/hooks/useTagPresets';
 
 interface UnifiedSearchProps {
   filters: FileFilters;
@@ -10,7 +10,7 @@ interface UnifiedSearchProps {
 }
 
 interface SearchSuggestion {
-  type: 'activity_type' | 'instructor' | 'date' | 'filename';
+  type: 'activity_type' | 'date' | 'filename';
   label: string;
   value: string;
   display: string;
@@ -24,7 +24,6 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
   const { data: activityTypes } = useActivityTypes();
-  const { data: instructors } = useInstructors();
 
   // Generate suggestions based on input (memoized)
   const suggestions = useMemo(() => {
@@ -42,19 +41,6 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
         newSuggestions.push({
           type: 'activity_type',
           label: '活动类型',
-          value: preset.value,
-          display: preset.display_name
-        });
-      }
-    });
-
-    // Match instructors
-    instructors?.filter(preset => preset.is_active).forEach(preset => {
-      if (preset.display_name.toLowerCase().includes(input) || 
-          preset.value.toLowerCase().includes(input)) {
-        newSuggestions.push({
-          type: 'instructor',
-          label: '带训老师',
           value: preset.value,
           display: preset.display_name
         });
@@ -118,7 +104,7 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
     }
 
     return newSuggestions;
-  }, [searchInput, activityTypes, instructors]);
+  }, [searchInput, activityTypes]);
 
   // Handle suggestion selection
   const selectSuggestion = (suggestion: SearchSuggestion) => {
@@ -127,9 +113,6 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
     switch (suggestion.type) {
       case 'activity_type':
         newFilters.activity_type = suggestion.value;
-        break;
-      case 'instructor':
-        newFilters.instructor = suggestion.value;
         break;
       case 'date':
         if (suggestion.value.includes('|')) {
@@ -194,7 +177,6 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
   const clearFilters = () => {
     onFilterChange({
       activity_type: undefined,
-      instructor: undefined,
       date_from: undefined,
       date_to: undefined,
       search: undefined
@@ -215,14 +197,6 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
       tags.push({ 
         label: `活动: ${preset?.display_name || filters.activity_type}`, 
         key: 'activity_type' 
-      });
-    }
-
-    if (filters.instructor) {
-      const preset = instructors?.find(p => p.value === filters.instructor);
-      tags.push({ 
-        label: `老师: ${preset?.display_name || filters.instructor}`, 
-        key: 'instructor' 
       });
     }
 
@@ -271,7 +245,7 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={() => searchInput && setShowSuggestions(true)}
-            placeholder="搜索文件名、活动类型、老师、日期 (如: 2025-03 或 常规训练)..."
+            placeholder="搜索文件名、活动类型、日期 (如: 2025-03 或 常规训练)..."
             className="w-full px-4 py-3 pr-10 text-base border-2 border-accent-gray/30 rounded-lg 
                      focus:border-accent-blue focus:outline-none transition-colors
                      placeholder:text-accent-gray/60"

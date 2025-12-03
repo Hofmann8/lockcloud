@@ -6,7 +6,7 @@ import { TagPreset } from '@/types';
  * Hook to fetch tag presets
  * Supports filtering by category and provides caching
  */
-export function useTagPresets(category?: 'activity_type' | 'instructor') {
+export function useTagPresets(category?: 'activity_type') {
   return useQuery<TagPreset[]>({
     queryKey: ['tag-presets', category],
     queryFn: () => getTagPresets(category),
@@ -20,11 +20,4 @@ export function useTagPresets(category?: 'activity_type' | 'instructor') {
  */
 export function useActivityTypes() {
   return useTagPresets('activity_type');
-}
-
-/**
- * Hook to fetch instructor presets
- */
-export function useInstructors() {
-  return useTagPresets('instructor');
 }

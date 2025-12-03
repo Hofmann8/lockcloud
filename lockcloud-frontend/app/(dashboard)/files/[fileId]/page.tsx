@@ -46,7 +46,8 @@ function FilePreviewPageContent({ params }: PageProps) {
   });
 
   const handleBack = () => {
-    router.push('/files');
+    // 使用浏览器历史返回，保留之前的筛选状态和页码
+    router.back();
   };
 
   const handlePrevious = () => {

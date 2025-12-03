@@ -141,6 +141,7 @@ def create_app(config_name=None):
     with app.app_context():
         from auth.models import User
         from files.models import File, TagPreset
+        from files.request_models import FileRequest
         from logs.models import FileLog
     
     # Register error handlers
@@ -153,12 +154,14 @@ def create_app(config_name=None):
     from tag_presets.routes import tag_presets_bp
     from admin.routes import admin_bp
     from tags.routes import tags_bp
+    from requests.routes import requests_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(files_bp, url_prefix='/api/files')
     app.register_blueprint(logs_bp, url_prefix='/api/logs')
     app.register_blueprint(tag_presets_bp, url_prefix='/api/tag-presets')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(tags_bp, url_prefix='/api/tags')
+    app.register_blueprint(requests_bp, url_prefix='/api/requests')
     
     # Health check endpoint
     @app.route('/')

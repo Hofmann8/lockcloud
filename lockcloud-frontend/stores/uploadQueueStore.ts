@@ -42,7 +42,7 @@ export const useUploadQueueStore = create<UploadQueueState>((set, get) => ({
       })),
       activityDate: request.activityDate,
       activityType: request.activityType,
-      instructor: request.instructor,
+      activityName: request.activityName,
       status: 'pending',
       createdAt: new Date(),
     };
@@ -121,7 +121,7 @@ export const useUploadQueueStore = create<UploadQueueState>((set, get) => ({
                 size: fileItem.file.size,
                 activity_date: nextTask.activityDate,
                 activity_type: nextTask.activityType,
-                instructor: nextTask.instructor,
+                activity_name: nextTask.activityName,
                 custom_filename: fileItem.customFilename?.trim() || undefined,
               });
               
@@ -165,7 +165,7 @@ export const useUploadQueueStore = create<UploadQueueState>((set, get) => ({
                 original_filename: fileItem.file.name,
                 activity_date: nextTask.activityDate,
                 activity_type: nextTask.activityType,
-                instructor: nextTask.instructor,
+                activity_name: nextTask.activityName,
               });
               
               // Update file status to completed

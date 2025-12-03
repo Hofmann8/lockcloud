@@ -5,7 +5,7 @@ import { FileFilters as FileFiltersType } from '@/types';
 import { Button } from './Button';
 import { Input } from './Input';
 import { zhCN } from '@/locales/zh-CN';
-import { useActivityTypes, useInstructors } from '@/lib/hooks/useTagPresets';
+import { useActivityTypes } from '@/lib/hooks/useTagPresets';
 
 interface FileFiltersProps {
   filters: FileFiltersType;
@@ -15,7 +15,6 @@ interface FileFiltersProps {
 export function FileFilters({ filters, onFilterChange }: FileFiltersProps) {
   const [localFilters, setLocalFilters] = useState<Partial<FileFiltersType>>({
     activity_type: filters.activity_type || '',
-    instructor: filters.instructor || '',
     date_from: filters.date_from || '',
     date_to: filters.date_to || '',
     search: filters.search || '',
@@ -25,13 +24,11 @@ export function FileFilters({ filters, onFilterChange }: FileFiltersProps) {
 
   // Load tag presets
   const { data: activityTypes, isLoading: loadingActivityTypes } = useActivityTypes();
-  const { data: instructors, isLoading: loadingInstructors } = useInstructors();
 
   const handleApply = () => {
     const cleanFilters: Partial<FileFiltersType> = {};
     
     if (localFilters.activity_type) cleanFilters.activity_type = localFilters.activity_type;
-    if (localFilters.instructor) cleanFilters.instructor = localFilters.instructor;
     if (localFilters.date_from) cleanFilters.date_from = localFilters.date_from;
     if (localFilters.date_to) cleanFilters.date_to = localFilters.date_to;
     if (localFilters.search) cleanFilters.search = localFilters.search;
@@ -42,21 +39,19 @@ export function FileFilters({ filters, onFilterChange }: FileFiltersProps) {
   const handleReset = () => {
     setLocalFilters({
       activity_type: '',
-      instructor: '',
       date_from: '',
       date_to: '',
       search: '',
     });
     onFilterChange({
       activity_type: undefined,
-      instructor: undefined,
       date_from: undefined,
       date_to: undefined,
       search: undefined,
     });
   };
 
-  const hasActiveFilters = filters.activity_type || filters.instructor || filters.date_from || filters.date_to || filters.search;
+  const hasActiveFilters = filters.activity_type || filters.date_from || filters.date_to || filters.search;
 
   return (
     <div className="card-functional bg-primary-white p-4 md:p-6">
@@ -107,28 +102,6 @@ export function FileFilters({ filters, onFilterChange }: FileFiltersProps) {
             </select>
           </div>
 
-          {/* Instructor Filter */}
-          <div>
-            <label className="block text-sm md:text-sm font-medium text-primary-black mb-2">
-              带训老师
-            </label>
-            <select
-              value={localFilters.instructor || ''}
-              onChange={(e) =>
-                setLocalFilters({ ...localFilters, instructor: e.target.value })
-              }
-              className="input-functional w-full px-4 py-3 md:py-2 text-base md:text-base text-primary-black min-h-[44px]"
-              disabled={loadingInstructors}
-            >
-              <option value="">{zhCN.filters.all}</option>
-              {instructors?.filter(preset => preset.is_active).map((preset) => (
-                <option key={preset.id} value={preset.value}>
-                  {preset.display_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* Date Range Filter */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
             <Input
@@ -165,7 +138,6 @@ export function FileFilters({ filters, onFilterChange }: FileFiltersProps) {
               {zhCN.common.filter}: 
               {filters.search && ` 搜索: ${filters.search}`}
               {filters.activity_type && ` 活动类型: ${activityTypes?.find(p => p.value === filters.activity_type)?.display_name || filters.activity_type}`}
-              {filters.instructor && ` 带训老师: ${instructors?.find(p => p.value === filters.instructor)?.display_name || filters.instructor}`}
               {filters.date_from && ` ${zhCN.filters.startDate}: ${filters.date_from}`}
               {filters.date_to && ` ${zhCN.filters.endDate}: ${filters.date_to}`}
             </div>

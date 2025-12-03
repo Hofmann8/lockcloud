@@ -99,14 +99,14 @@ export const getDirectories = async (): Promise<{ directories: DirectoryNode[] }
 };
 
 /**
- * Update file metadata (activity_date, activity_type, instructor)
+ * Update file metadata (activity_date, activity_type, activity_name)
  */
 export const updateFile = async (
   fileId: number,
   data: {
     activity_date?: string;
     activity_type?: string;
-    instructor?: string;
+    activity_name?: string;
   }
 ): Promise<File> => {
   const response = await apiClient.patch(`/api/files/${fileId}`, data);
@@ -189,5 +189,79 @@ export const batchRemoveTag = async (
 ): Promise<BatchOperationResult> => {
   const data: BatchRemoveTagRequest = { file_ids: fileIds, tag_id: tagId };
   const response = await apiClient.delete('/api/files/batch/tags', { data });
+  return response.data;
+};
+
+/**
+ * Activity name with associated activity type
+ */
+export interface ActivityNameInfo {
+  name: string;
+  activity_type: string;
+  activity_type_display: string;
+  file_count: number;
+}
+
+/**
+ * Get activity names for a specific date
+ * Returns unique activity names with their associated activity types
+ */
+export const getActivityNamesByDate = async (
+  date: string
+): Promise<{
+  date: string;
+  activity_names: ActivityNameInfo[];
+}> => {
+  const response = await apiClient.get('/api/files/activity-names', {
+    params: { date }
+  });
+  return response.data;
+};
+
+
+/**
+ * Activity directory information
+ */
+export interface ActivityDirectoryInfo {
+  activity_date: string;
+  activity_name: string;
+  activity_type: string;
+  activity_type_display: string;
+  file_count: number;
+  owner_id: number;
+  owner_name: string;
+  created_at: string | null;
+  is_owner: boolean;
+}
+
+/**
+ * Get activity directory information
+ */
+export const getActivityDirectoryInfo = async (params: {
+  activity_date: string;
+  activity_name: string;
+  activity_type: string;
+}): Promise<{ directory: ActivityDirectoryInfo }> => {
+  const response = await apiClient.get('/api/files/activity-directory', { params });
+  return response.data;
+};
+
+/**
+ * Update activity directory (owner only)
+ */
+export const updateActivityDirectory = async (data: {
+  activity_date: string;
+  activity_name: string;
+  activity_type: string;
+  new_activity_name?: string;
+  new_activity_type?: string;
+}): Promise<{
+  success: boolean;
+  message: string;
+  updated_count: number;
+  new_activity_name: string;
+  new_activity_type: string;
+}> => {
+  const response = await apiClient.patch('/api/files/activity-directory', data);
   return response.data;
 };

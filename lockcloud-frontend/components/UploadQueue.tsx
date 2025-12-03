@@ -107,7 +107,7 @@ function TaskCard({ task }: { task: UploadTask }) {
             </span>
           </div>
           <p className="text-sm font-medium text-primary-black">
-            {task.activityType} · {task.instructor}
+            {task.activityType}{task.activityName ? ` · ${task.activityName}` : ''}
           </p>
           <p className="text-xs text-accent-gray">
             {task.activityDate} · {formatTime(task.createdAt)}

@@ -5,7 +5,7 @@ import { FileFilters as FileFiltersType } from '@/types';
 import { MediaTypeFilter, MediaType } from './MediaTypeFilter';
 import { FreeTagFilter } from './FreeTagFilter';
 import { Button } from './Button';
-import { useActivityTypes, useInstructors } from '@/lib/hooks/useTagPresets';
+import { useActivityTypes } from '@/lib/hooks/useTagPresets';
 
 interface FilterPanelProps {
   filters: FileFiltersType;
@@ -36,13 +36,11 @@ export function FilterPanel({
   const [localFilters, setLocalFilters] = useState<Partial<FileFiltersType>>({
     media_type: filters.media_type || 'all',
     activity_type: filters.activity_type || '',
-    instructor: filters.instructor || '',
     tags: filters.tags || [],
   });
 
   // Load tag presets
   const { data: activityTypes, isLoading: loadingActivityTypes } = useActivityTypes();
-  const { data: instructors, isLoading: loadingInstructors } = useInstructors();
 
   const handleMediaTypeChange = useCallback((value: MediaType) => {
     setLocalFilters((prev) => ({ ...prev, media_type: value }));
@@ -51,11 +49,6 @@ export function FilterPanel({
   const handleActivityTypeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     setLocalFilters((prev) => ({ ...prev, activity_type: e.target.value }));
   }, []);
-
-  const handleInstructorChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    setLocalFilters((prev) => ({ ...prev, instructor: e.target.value }));
-  }, []);
-
 
   const handleFreeTagsChange = useCallback((tags: string[]) => {
     setLocalFilters((prev) => ({ ...prev, tags }));
@@ -70,9 +63,6 @@ export function FilterPanel({
     if (localFilters.activity_type) {
       cleanFilters.activity_type = localFilters.activity_type;
     }
-    if (localFilters.instructor) {
-      cleanFilters.instructor = localFilters.instructor;
-    }
     if (localFilters.tags && localFilters.tags.length > 0) {
       cleanFilters.tags = localFilters.tags;
     }
@@ -84,13 +74,11 @@ export function FilterPanel({
     setLocalFilters({
       media_type: 'all',
       activity_type: '',
-      instructor: '',
       tags: [],
     });
     onFilterChange({
       media_type: undefined,
       activity_type: undefined,
-      instructor: undefined,
       tags: undefined,
     });
   }, [onFilterChange]);
@@ -98,13 +86,11 @@ export function FilterPanel({
   const hasActiveFilters =
     (filters.media_type && filters.media_type !== 'all') ||
     filters.activity_type ||
-    filters.instructor ||
     (filters.tags && filters.tags.length > 0);
 
   const activeFilterCount = [
     filters.media_type && filters.media_type !== 'all',
     filters.activity_type,
-    filters.instructor,
     filters.tags && filters.tags.length > 0,
   ].filter(Boolean).length;
 
@@ -138,26 +124,6 @@ export function FilterPanel({
             >
               <option value="">全部</option>
               {activityTypes?.filter((preset) => preset.is_active).map((preset) => (
-                <option key={preset.id} value={preset.value}>
-                  {preset.display_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Instructor Filter */}
-          <div>
-            <label className="block text-sm font-medium text-primary-black mb-2">
-              带训老师
-            </label>
-            <select
-              value={localFilters.instructor || ''}
-              onChange={handleInstructorChange}
-              className="input-functional w-full px-4 py-2.5 text-base text-primary-black min-h-[44px]"
-              disabled={loadingInstructors}
-            >
-              <option value="">全部</option>
-              {instructors?.filter((preset) => preset.is_active).map((preset) => (
                 <option key={preset.id} value={preset.value}>
                   {preset.display_name}
                 </option>
@@ -231,11 +197,6 @@ export function FilterPanel({
           {filters.activity_type && (
             <span className="inline-block mr-2">
               活动类型: {activityTypes?.find((p) => p.value === filters.activity_type)?.display_name || filters.activity_type}
-            </span>
-          )}
-          {filters.instructor && (
-            <span className="inline-block mr-2">
-              带训老师: {instructors?.find((p) => p.value === filters.instructor)?.display_name || filters.instructor}
             </span>
           )}
           {filters.tags && filters.tags.length > 0 && (

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Modal, ModalFooter } from './Modal';
 import { TagSelector } from './TagSelector';
 import { File } from '@/types';
-import { useActivityTypes, useInstructors } from '@/lib/hooks/useTagPresets';
+import { useActivityTypes } from '@/lib/hooks/useTagPresets';
 import { updateFileTags } from '@/lib/api/files';
 import { showToast } from '@/lib/utils/toast';
 import { AxiosError } from 'axios';
@@ -21,7 +21,6 @@ interface LegacyFileTagEditorProps {
 const errorMessages: Record<string, string> = {
   FILE_007: '活动日期格式无效，应为YYYY-MM-DD格式',
   FILE_008: '活动类型无效，请从列表中选择',
-  FILE_009: '带训老师标签无效，请从列表中选择',
 };
 
 export function LegacyFileTagEditor({
@@ -39,7 +38,7 @@ export function LegacyFileTagEditor({
   // Form state
   const [activityDate, setActivityDate] = useState<string>(getCurrentDate());
   const [activityType, setActivityType] = useState<string>('');
-  const [instructor, setInstructor] = useState<string>('');
+  const [activityName, setActivityName] = useState<string>('');
   
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,19 +47,17 @@ export function LegacyFileTagEditor({
   const [errors, setErrors] = useState<{
     activityDate?: string;
     activityType?: string;
-    instructor?: string;
   }>({});
 
   // Load tag presets
   const { data: activityTypes = [], isLoading: loadingActivityTypes } = useActivityTypes();
-  const { data: instructors = [], isLoading: loadingInstructors } = useInstructors();
 
   // Reset form when modal opens
   useEffect(() => {
     if (isOpen) {
       setActivityDate(getCurrentDate());
       setActivityType('');
-      setInstructor('');
+      setActivityName('');
       setErrors({});
     }
   }, [isOpen]);
@@ -94,10 +91,6 @@ export function LegacyFileTagEditor({
       newErrors.activityType = '请选择活动类型';
     }
     
-    if (!instructor) {
-      newErrors.instructor = '请选择带训老师';
-    }
-    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -117,7 +110,7 @@ export function LegacyFileTagEditor({
       await updateFileTags(file.id, {
         activity_date: activityDate,
         activity_type: activityType,
-        instructor: instructor,
+        activity_name: activityName.trim() || undefined,
       });
 
       // Show success message
@@ -139,8 +132,6 @@ export function LegacyFileTagEditor({
             setErrors({ ...errors, activityDate: errorMessages[errorCode] });
           } else if (errorCode === 'FILE_008') {
             setErrors({ ...errors, activityType: errorMessages[errorCode] });
-          } else if (errorCode === 'FILE_009') {
-            setErrors({ ...errors, instructor: errorMessages[errorCode] });
           }
           
           // Show toast
@@ -282,22 +273,28 @@ export function LegacyFileTagEditor({
             disabled={isSubmitting || loadingActivityTypes}
           />
 
-          {/* Instructor */}
-          <TagSelector
-            label="带训老师"
-            value={instructor}
-            onChange={(value) => {
-              setInstructor(value);
-              if (errors.instructor) {
-                setErrors({ ...errors, instructor: undefined });
-              }
-            }}
-            options={instructors}
-            placeholder="请选择带训老师"
-            required
-            error={errors.instructor}
-            disabled={isSubmitting || loadingInstructors}
-          />
+          {/* Activity Name (Optional) */}
+          <div>
+            <label
+              htmlFor="legacy-activity-name"
+              className="block text-sm md:text-sm font-medium text-primary-black mb-1.5 md:mb-1.5"
+            >
+              活动名称
+              <span className="text-xs text-accent-gray ml-1">(可选)</span>
+            </label>
+            <input
+              id="legacy-activity-name"
+              type="text"
+              value={activityName}
+              onChange={(e) => setActivityName(e.target.value)}
+              placeholder="例如：周末团建、新年晚会"
+              disabled={isSubmitting}
+              className="input-functional w-full px-4 py-3 md:py-2 text-base text-primary-black min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <p className="text-xs text-accent-gray mt-1">
+              用于标识具体活动，方便后续查找
+            </p>
+          </div>
         </div>
       </div>
     </Modal>

@@ -1,7 +1,6 @@
 import apiClient from './client';
 import {
   TagPresetsResponse,
-  AddTagPresetRequest,
   TagPreset,
 } from '@/types';
 
@@ -10,7 +9,7 @@ import {
  * @param category Optional, filter by specific category
  */
 export const getTagPresets = async (
-  category?: 'activity_type' | 'instructor'
+  category?: 'activity_type'
 ): Promise<TagPreset[]> => {
   const params = category ? { category } : {};
   const response = await apiClient.get<TagPresetsResponse>(
@@ -18,23 +17,4 @@ export const getTagPresets = async (
     { params }
   );
   return response.data.presets;
-};
-
-/**
- * Add new tag preset (admin only)
- */
-export const addTagPreset = async (
-  data: AddTagPresetRequest
-): Promise<TagPreset> => {
-  const response = await apiClient.post('/api/tag-presets', data);
-  return response.data.preset;
-};
-
-/**
- * Deactivate tag preset (admin only)
- */
-export const deactivateTagPreset = async (
-  presetId: number
-): Promise<void> => {
-  await apiClient.delete(`/api/tag-presets/${presetId}`);
 };

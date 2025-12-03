@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
+import { getPendingCount } from '@/lib/api/requests';
 import toast from 'react-hot-toast';
 
 export function Navbar() {
@@ -19,6 +21,13 @@ export function Navbar() {
     router.push('/auth/login');
   };
 
+  // Get pending request count
+  const { data: pendingCount } = useQuery({
+    queryKey: ['requests', 'pending-count'],
+    queryFn: getPendingCount,
+    refetchInterval: 60000, // Refresh every minute
+  });
+
   const isActive = (path: string) => {
     if (path === '/admin') {
       return pathname?.startsWith('/admin');
@@ -30,6 +39,7 @@ export function Navbar() {
   const navLinks = [
     { href: '/files', label: '文件' },
     { href: '/upload', label: '上传' },
+    { href: '/requests', label: '请求', badge: pendingCount },
     { href: '/changelog', label: '更新日志' },
     ...(user?.is_admin ? [{ href: '/admin', label: '管理' }] : []),
   ];
@@ -64,6 +74,12 @@ export function Navbar() {
                 <span className={`${isActive(link.href) ? 'text-orange-500' : 'group-hover:text-orange-500'}`}>
                   {link.label}
                 </span>
+                {/* Badge for pending count */}
+                {'badge' in link && link.badge && link.badge > 0 && (
+                  <span className="absolute -top-1 -right-3 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-xs font-bold text-white bg-red-500 rounded-full">
+                    {link.badge > 99 ? '99+' : link.badge}
+                  </span>
+                )}
                 {/* Active/Hover Underline */}
                 <span
                   className={`absolute bottom-0 left-0 w-full h-0.5 bg-orange-500 transition-transform origin-left ${

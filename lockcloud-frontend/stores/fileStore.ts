@@ -48,14 +48,13 @@ export const useFileStore = create<FileState>((set, get) => ({
     
     try {
       // Note: This is a simplified upload that may need additional parameters
-      // In a real implementation, you'd need to provide activity_date, activity_type, and instructor
+      // In a real implementation, you'd need to provide activity_date and activity_type
       const uploadUrlRequest: UploadUrlRequest = {
         original_filename: file.name,
         content_type: file.type,
         size: file.size,
         activity_date: new Date().toISOString().split('T')[0], // Default to today
         activity_type: '', // Should be provided by the UI
-        instructor: '', // Should be provided by the UI
       };
       
       const { upload_url, s3_key } = await filesApi.getUploadUrl(uploadUrlRequest);
@@ -81,7 +80,6 @@ export const useFileStore = create<FileState>((set, get) => ({
         content_type: file.type,
         activity_date: new Date().toISOString().split('T')[0],
         activity_type: '',
-        instructor: '',
       };
       
       const uploadedFile = await filesApi.confirmUpload(confirmRequest);

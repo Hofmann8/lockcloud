@@ -52,7 +52,7 @@ def get_upload_url():
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['original_filename', 'content_type', 'size', 'activity_date', 'activity_type', 'instructor']
+        required_fields = ['original_filename', 'content_type', 'size', 'activity_date', 'activity_type']
         for field in required_fields:
             if not data or field not in data:
                 return jsonify({
@@ -67,7 +67,7 @@ def get_upload_url():
         size = data['size']
         activity_date_str = data['activity_date'].strip()
         activity_type = data['activity_type'].strip()
-        instructor = data['instructor'].strip()
+        activity_name = data.get('activity_name', '').strip() if data.get('activity_name') else None
         custom_filename = data.get('custom_filename', '').strip() if data.get('custom_filename') else None
         
         # Validate activity date format
@@ -96,14 +96,12 @@ def get_upload_url():
                 }
             }), 400
         
-        # Validate instructor
-        instructor_presets = tag_preset_service.get_active_presets('instructor')
-        valid_instructors = [preset.value for preset in instructor_presets]
-        if instructor not in valid_instructors:
+        # Validate activity_name length if provided
+        if activity_name and len(activity_name) > 200:
             return jsonify({
                 'error': {
-                    'code': 'FILE_009',
-                    'message': f'带训老师标签无效。有效选项: {", ".join(valid_instructors)}'
+                    'code': 'VALIDATION_001',
+                    'message': '活动名称过长（最多200字符）'
                 }
             }), 400
         
@@ -207,7 +205,7 @@ def get_upload_url():
         s3_tags = {
             'activity_date': activity_date_str,
             'activity_type': activity_type,
-            'instructor': instructor,
+            'activity_name': activity_name or '',
             'uploader_name': uploader_name,
             'upload_timestamp': datetime.utcnow().isoformat() + 'Z',
             'original_filename': original_filename
@@ -287,7 +285,7 @@ def confirm_upload():
         
         # Validate required fields
         required_fields = ['s3_key', 'size', 'content_type', 'original_filename', 
-                          'activity_date', 'activity_type', 'instructor']
+                          'activity_date', 'activity_type']
         for field in required_fields:
             if not data or field not in data:
                 return jsonify({
@@ -303,7 +301,7 @@ def confirm_upload():
         original_filename = data['original_filename'].strip()
         activity_date_str = data['activity_date'].strip()
         activity_type = data['activity_type'].strip()
-        instructor = data['instructor'].strip()
+        activity_name = data.get('activity_name', '').strip() if data.get('activity_name') else None
         
         # Parse activity date
         try:
@@ -338,7 +336,7 @@ def confirm_upload():
         s3_tags = {
             'activity_date': activity_date_str,
             'activity_type': activity_type,
-            'instructor': instructor,
+            'activity_name': activity_name or '',
             'uploader_name': uploader_name,
             'upload_timestamp': datetime.utcnow().isoformat() + 'Z',
             'original_filename': original_filename
@@ -371,7 +369,7 @@ def confirm_upload():
             original_filename=original_filename,
             activity_date=activity_date,
             activity_type=activity_type,
-            instructor=instructor,
+            activity_name=activity_name,
             is_legacy=False  # Mark as new system file
         )
         
@@ -404,16 +402,9 @@ def confirm_upload():
         )
         activity_type_display = activity_type_preset.display_name if activity_type_preset else activity_type
         
-        instructor_preset = next(
-            (p for p in tag_preset_service.get_active_presets('instructor') if p.value == instructor),
-            None
-        )
-        instructor_display = instructor_preset.display_name if instructor_preset else instructor
-        
         # Build response with display names
         file_dict = file.to_dict(include_uploader=True)
         file_dict['activity_type_display'] = activity_type_display
-        file_dict['instructor_display'] = instructor_display
         
         return jsonify({
             'success': True,
@@ -1112,8 +1103,12 @@ def update_file(file_id):
                 }
             }), 404
         
-        # Verify user is the uploader
-        if file.uploader_id != current_user_id:
+        # Verify user is the uploader or admin
+        from auth.models import User
+        current_user = User.query.get(current_user_id)
+        is_admin = current_user and current_user.is_admin
+        
+        if file.uploader_id != current_user_id and not is_admin:
             return jsonify({
                 'error': {
                     'code': 'FILE_002',
@@ -1192,6 +1187,23 @@ def update_file(file_id):
             
             if file.instructor != instructor:
                 file.instructor = instructor
+                changes_made = True
+        
+        # Update activity_name if provided
+        if 'activity_name' in data:
+            activity_name = data['activity_name'].strip() if data['activity_name'] else None
+            
+            # Validate activity_name length
+            if activity_name and len(activity_name) > 200:
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': '活动名称过长（最多200字符）'
+                    }
+                }), 400
+            
+            if file.activity_name != activity_name:
+                file.activity_name = activity_name
                 changes_made = True
         
         if not changes_made:
@@ -2289,5 +2301,386 @@ def batch_remove_tag():
             'error': {
                 'code': 'INTERNAL_ERROR',
                 'message': '批量移除标签失败，请稍后重试'
+            }
+        }), 500
+
+
+# ============================================================================
+# Activity Names Endpoints
+# ============================================================================
+
+@files_bp.route('/activity-names', methods=['GET'])
+@jwt_required()
+def get_activity_names_by_date():
+    """
+    Get unique activity names for a specific date
+    
+    GET /api/files/activity-names?date=2025-03-15
+    Headers: Authorization: Bearer <token>
+    Query Parameters:
+        - date: Activity date in ISO format (YYYY-MM-DD, required)
+    
+    Returns:
+        200: Activity names retrieved successfully
+        400: Invalid or missing date parameter
+        401: Unauthorized
+        500: Query failed
+    """
+    try:
+        # Get current user ID from JWT (for authentication)
+        current_user_id = int(get_jwt_identity())
+        
+        # Get date parameter
+        date_str = request.args.get('date', '').strip()
+        
+        if not date_str:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '缺少必填参数: date'
+                }
+            }), 400
+        
+        # Parse date
+        try:
+            activity_date = datetime.fromisoformat(date_str).date()
+        except ValueError:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '日期格式无效，请使用 ISO 格式 (YYYY-MM-DD)'
+                }
+            }), 400
+        
+        # Query unique activity names for the date with their activity types
+        from sqlalchemy import func
+        
+        results = db.session.query(
+            File.activity_name,
+            File.activity_type,
+            func.count(File.id).label('file_count')
+        ).filter(
+            File.activity_date == activity_date,
+            File.activity_name.isnot(None),
+            File.activity_name != ''
+        ).group_by(
+            File.activity_name,
+            File.activity_type
+        ).order_by(
+            File.activity_name
+        ).all()
+        
+        # Get activity type display names
+        from services.tag_preset_service import tag_preset_service
+        activity_type_presets = {
+            p.value: p.display_name 
+            for p in tag_preset_service.get_active_presets('activity_type')
+        }
+        
+        # Build response
+        activity_names = []
+        for activity_name, activity_type, file_count in results:
+            activity_names.append({
+                'name': activity_name,
+                'activity_type': activity_type,
+                'activity_type_display': activity_type_presets.get(activity_type, activity_type),
+                'file_count': file_count
+            })
+        
+        current_app.logger.info(
+            f'User {current_user_id} retrieved {len(activity_names)} activity names for date {date_str}'
+        )
+        
+        return jsonify({
+            'success': True,
+            'date': date_str,
+            'activity_names': activity_names
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting activity names: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '获取活动名称失败，请稍后重试'
+            }
+        }), 500
+
+
+# ============================================================================
+# Activity Directory Management Endpoints
+# ============================================================================
+
+@files_bp.route('/activity-directory', methods=['GET'])
+@jwt_required()
+def get_activity_directory_info():
+    """
+    Get activity directory information including owner
+    
+    GET /api/files/activity-directory?activity_date=2025-03-15&activity_name=周末团建&activity_type=team_building
+    Headers: Authorization: Bearer <token>
+    Query Parameters:
+        - activity_date: Activity date in ISO format (YYYY-MM-DD, required)
+        - activity_name: Activity name (required)
+        - activity_type: Activity type (required)
+    
+    Returns:
+        200: Directory info retrieved successfully
+        400: Invalid or missing parameters
+        401: Unauthorized
+        404: Directory not found
+        500: Query failed
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        activity_date_str = request.args.get('activity_date', '').strip()
+        activity_name = request.args.get('activity_name', '').strip()
+        activity_type = request.args.get('activity_type', '').strip()
+        
+        if not activity_date_str or not activity_name or not activity_type:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '缺少必填参数: activity_date, activity_name, activity_type'
+                }
+            }), 400
+        
+        # Parse date
+        try:
+            activity_date = datetime.fromisoformat(activity_date_str).date()
+        except ValueError:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '日期格式无效，请使用 ISO 格式 (YYYY-MM-DD)'
+                }
+            }), 400
+        
+        # Find the first file in this directory (owner is the first uploader)
+        first_file = File.query.filter(
+            File.activity_date == activity_date,
+            File.activity_name == activity_name,
+            File.activity_type == activity_type
+        ).order_by(File.uploaded_at.asc()).first()
+        
+        if not first_file:
+            return jsonify({
+                'error': {
+                    'code': 'DIR_001',
+                    'message': '目录不存在'
+                }
+            }), 404
+        
+        # Get file count
+        file_count = File.query.filter(
+            File.activity_date == activity_date,
+            File.activity_name == activity_name,
+            File.activity_type == activity_type
+        ).count()
+        
+        # Get owner info and current user info
+        from auth.models import User
+        owner = User.query.get(first_file.uploader_id)
+        current_user = User.query.get(current_user_id)
+        
+        # Check if current user is owner or admin
+        is_owner_or_admin = current_user_id == first_file.uploader_id or (current_user and current_user.is_admin)
+        
+        # Get activity type display name
+        from services.tag_preset_service import tag_preset_service
+        activity_type_presets = {
+            p.value: p.display_name 
+            for p in tag_preset_service.get_active_presets('activity_type')
+        }
+        
+        return jsonify({
+            'success': True,
+            'directory': {
+                'activity_date': activity_date_str,
+                'activity_name': activity_name,
+                'activity_type': activity_type,
+                'activity_type_display': activity_type_presets.get(activity_type, activity_type),
+                'file_count': file_count,
+                'owner_id': first_file.uploader_id,
+                'owner_name': owner.name if owner else str(first_file.uploader_id),
+                'created_at': first_file.uploaded_at.isoformat() if first_file.uploaded_at else None,
+                'is_owner': is_owner_or_admin
+            }
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting activity directory info: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '获取目录信息失败，请稍后重试'
+            }
+        }), 500
+
+
+@files_bp.route('/activity-directory', methods=['PATCH'])
+@jwt_required()
+def update_activity_directory():
+    """
+    Update activity directory (rename activity_name or change activity_type)
+    Only the directory owner can update directly, others need to submit a request
+    
+    PATCH /api/files/activity-directory
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "activity_date": "2025-03-15",
+        "activity_name": "周末团建",
+        "activity_type": "team_building",
+        "new_activity_name": "新活动名称",
+        "new_activity_type": "special_event"
+    }
+    
+    Returns:
+        200: Directory updated successfully
+        400: Invalid input
+        401: Unauthorized
+        403: Not the owner, need to submit request
+        404: Directory not found
+        500: Update failed
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['activity_date', 'activity_name', 'activity_type']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': f'缺少必填字段: {field}'
+                    }
+                }), 400
+        
+        activity_date_str = data['activity_date'].strip()
+        activity_name = data['activity_name'].strip()
+        activity_type = data['activity_type'].strip()
+        new_activity_name = data.get('new_activity_name', '').strip() if data.get('new_activity_name') else None
+        new_activity_type = data.get('new_activity_type', '').strip() if data.get('new_activity_type') else None
+        
+        if not new_activity_name and not new_activity_type:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '请提供要修改的内容 (new_activity_name 或 new_activity_type)'
+                }
+            }), 400
+        
+        # Parse date
+        try:
+            activity_date = datetime.fromisoformat(activity_date_str).date()
+        except ValueError:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '日期格式无效'
+                }
+            }), 400
+        
+        # Validate new_activity_type if provided
+        if new_activity_type:
+            from services.tag_preset_service import tag_preset_service
+            activity_type_presets = tag_preset_service.get_active_presets('activity_type')
+            valid_types = [p.value for p in activity_type_presets]
+            if new_activity_type not in valid_types:
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': f'无效的活动类型。有效选项: {", ".join(valid_types)}'
+                    }
+                }), 400
+        
+        # Find the first file to determine owner
+        first_file = File.query.filter(
+            File.activity_date == activity_date,
+            File.activity_name == activity_name,
+            File.activity_type == activity_type
+        ).order_by(File.uploaded_at.asc()).first()
+        
+        if not first_file:
+            return jsonify({
+                'error': {
+                    'code': 'DIR_001',
+                    'message': '目录不存在'
+                }
+            }), 404
+        
+        # Check if current user is the owner or admin
+        from auth.models import User
+        current_user = User.query.get(current_user_id)
+        is_owner_or_admin = current_user_id == first_file.uploader_id or (current_user and current_user.is_admin)
+        
+        if not is_owner_or_admin:
+            # Not the owner or admin - need to submit a request
+            return jsonify({
+                'error': {
+                    'code': 'DIR_002',
+                    'message': '您不是该目录的所有者，需要提交修改申请',
+                    'owner_id': first_file.uploader_id,
+                    'need_request': True
+                }
+            }), 403
+        
+        # Owner can update directly
+        files_to_update = File.query.filter(
+            File.activity_date == activity_date,
+            File.activity_name == activity_name,
+            File.activity_type == activity_type
+        ).all()
+        
+        updated_count = 0
+        for file in files_to_update:
+            if new_activity_name:
+                file.activity_name = new_activity_name
+            if new_activity_type:
+                file.activity_type = new_activity_type
+                # Update directory path
+                year = activity_date.year
+                month = f"{activity_date.month:02d}"
+                file.directory = f"{new_activity_type}/{year}/{month}"
+                # Update s3_key
+                file.s3_key = f"{file.directory}/{file.filename}"
+            updated_count += 1
+        
+        db.session.commit()
+        
+        # Create log entry
+        log = FileLog.create_log(
+            user_id=current_user_id,
+            operation=OperationType.UPDATE,
+            file_id=first_file.id,
+            file_path=f"目录更新: {activity_name} -> {new_activity_name or activity_name}",
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        current_app.logger.info(
+            f'User {current_user_id} updated activity directory: {activity_name} ({updated_count} files)'
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': f'已更新 {updated_count} 个文件',
+            'updated_count': updated_count,
+            'new_activity_name': new_activity_name or activity_name,
+            'new_activity_type': new_activity_type or activity_type
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error updating activity directory: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '更新目录失败，请稍后重试'
             }
         }), 500

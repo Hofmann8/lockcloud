@@ -5,10 +5,8 @@ import { useRouter } from 'next/navigation';
 import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { useFileStore } from '@/stores/fileStore';
-import { Button } from './Button';
 import { Card } from './Card';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
-import { LegacyFileTagEditor } from './LegacyFileTagEditor';
 import { EditFileDialog } from './EditFileDialog';
 import { zhCN } from '@/locales/zh-CN';
 import toast from 'react-hot-toast';
@@ -28,7 +26,6 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
   const router = useRouter();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   
   const user = useAuthStore((state) => state.user);
@@ -105,13 +102,6 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
       }
     } finally {
       setIsDeleting(false);
-    }
-  };
-
-  const handleTagUpdateSuccess = () => {
-    setIsTagEditorOpen(false);
-    if (onFileUpdate) {
-      onFileUpdate();
     }
   };
 
@@ -229,29 +219,33 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
             )}
           </div>
 
-          {/* 底部信息 */}
+          {/* 底部信息 + 操作图标 */}
           <div className="flex items-center justify-between text-xs text-accent-gray pt-1.5 border-t border-accent-gray/15">
             <span>{formatSize(file.size)}</span>
-            <span>{file.uploader?.name || '-'}</span>
-          </div>
-
-          {/* 操作按钮 */}
-          {isOwner && (
-            <div className="flex gap-2 pt-1">
-              {file.is_legacy ? (
-                <Button variant="secondary" size="sm" onClick={() => setIsTagEditorOpen(true)} fullWidth>
-                  {zhCN.files.addTags}
-                </Button>
-              ) : (
-                <Button variant="secondary" size="sm" onClick={() => setIsEditDialogOpen(true)} fullWidth>
-                  编辑
-                </Button>
-              )}
-              <Button variant="danger" size="sm" onClick={handleDeleteClick} disabled={isDeleting} fullWidth>
-                删除
-              </Button>
+            <div className="flex items-center gap-1">
+              {/* 操作图标 - hover 时显示 */}
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsEditDialogOpen(true); }}
+                className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded opacity-0 group-hover:opacity-100 transition-all"
+                title="编辑"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDeleteClick(); }}
+                disabled={isDeleting}
+                className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+                title={isOwner ? "删除" : "请求删除"}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+              <span className="ml-1">{file.uploader?.name || '-'}</span>
             </div>
-          )}
+          </div>
         </div>
       </Card>
 
@@ -262,14 +256,6 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
         onConfirm={handleDeleteConfirm}
         file={file}
         isDeleting={isDeleting}
-      />
-
-      {/* Legacy 文件标签编辑器 */}
-      <LegacyFileTagEditor
-        file={file}
-        isOpen={isTagEditorOpen}
-        onClose={() => setIsTagEditorOpen(false)}
-        onSuccess={handleTagUpdateSuccess}
       />
 
       {/* 编辑文件信息对话框 */}

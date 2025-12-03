@@ -1,12 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { InlineCalendar } from './InlineCalendar';
-import { FlexibleTagInput } from './FlexibleTagInput';
 import { Button } from './Button';
-import { useActivityTypes, useInstructors } from '@/lib/hooks/useTagPresets';
-import { addTagPreset } from '@/lib/api/tag-presets';
-import { checkFilenames } from '@/lib/api/files';
+import { useActivityTypes } from '@/lib/hooks/useTagPresets';
+import { checkFilenames, getActivityNamesByDate, ActivityNameInfo } from '@/lib/api/files';
 import { showToast } from '@/lib/utils/toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUploadQueueStore } from '@/stores/uploadQueueStore';
@@ -22,13 +20,6 @@ interface MultiFileUploadFormProps {
   onUploadComplete: () => void;
   existingFiles: Set<string>;
   onExistingFilesChange: (files: Set<string>) => void;
-}
-
-const UPLOAD_PREFS_KEY = 'lockcloud_upload_prefs';
-
-interface UploadPreferences {
-  lastActivityType?: string;
-  lastInstructor?: string;
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -54,45 +45,65 @@ export function MultiFileUploadForm({
 
   const [activityDate, setActivityDate] = useState<string>(getCurrentDate());
   const [activityType, setActivityType] = useState<string>('');
-  const [instructor, setInstructor] = useState<string>('');
+  const [activityName, setActivityName] = useState<string>('');
+  const [isNewActivity, setIsNewActivity] = useState<boolean>(false);
+  const [existingActivityNames, setExistingActivityNames] = useState<ActivityNameInfo[]>([]);
+  const [loadingActivityNames, setLoadingActivityNames] = useState<boolean>(false);
   
   const [errors, setErrors] = useState<{
     activityDate?: string;
     activityType?: string;
-    instructor?: string;
+    activityName?: string;
   }>({});
 
   const [isCheckingFilenames, setIsCheckingFilenames] = useState(false);
 
   const { data: activityTypes = [], isLoading: loadingActivityTypes } = useActivityTypes();
-  const { data: instructors = [], isLoading: loadingInstructors } = useInstructors();
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(UPLOAD_PREFS_KEY);
-        if (saved) {
-          const prefs: UploadPreferences = JSON.parse(saved);
-          setActivityType(prefs.lastActivityType || '');
-          setInstructor(prefs.lastInstructor || '');
-        }
-      } catch (error) {
-        console.error('Failed to load upload preferences:', error);
-      }
+  // Fetch activity names when date changes
+  const fetchActivityNames = useCallback(async (date: string) => {
+    if (!date) return;
+    
+    setLoadingActivityNames(true);
+    try {
+      const result = await getActivityNamesByDate(date);
+      setExistingActivityNames(result.activity_names);
+    } catch (error) {
+      console.error('Failed to fetch activity names:', error);
+      setExistingActivityNames([]);
+    } finally {
+      setLoadingActivityNames(false);
     }
   }, []);
 
-  const savePreferences = () => {
-    if (typeof window !== 'undefined') {
-      try {
-        const prefs: UploadPreferences = {
-          lastActivityType: activityType,
-          lastInstructor: instructor,
-        };
-        localStorage.setItem(UPLOAD_PREFS_KEY, JSON.stringify(prefs));
-      } catch (error) {
-        console.error('Failed to save upload preferences:', error);
-      }
+  useEffect(() => {
+    fetchActivityNames(activityDate);
+  }, [activityDate, fetchActivityNames]);
+
+  // When selecting an existing activity name, auto-fill the activity type
+  const handleActivityNameSelect = (name: string) => {
+    setActivityName(name);
+    setIsNewActivity(false);
+    
+    // Find the activity type for this name
+    const existingActivity = existingActivityNames.find(a => a.name === name);
+    if (existingActivity) {
+      setActivityType(existingActivity.activity_type);
+    }
+    
+    if (errors.activityName) {
+      setErrors({ ...errors, activityName: undefined });
+    }
+  };
+
+  const handleNewActivityName = (name: string) => {
+    setActivityName(name);
+    setIsNewActivity(true);
+    // Clear activity type when creating new activity
+    setActivityType('');
+    
+    if (errors.activityName) {
+      setErrors({ ...errors, activityName: undefined });
     }
   };
 
@@ -115,7 +126,6 @@ export function MultiFileUploadForm({
     
     if (!activityDate) newErrors.activityDate = '请选择活动日期';
     if (!activityType) newErrors.activityType = '请选择活动类型';
-    if (!instructor) newErrors.instructor = '请选择带训老师';
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -124,7 +134,6 @@ export function MultiFileUploadForm({
   const checkQueueDuplicates = (): { hasDuplicates: boolean; duplicateFiles: string[] } => {
     const queueTasks = useUploadQueueStore.getState().tasks;
     
-    // Get all filenames from current form
     const currentFilenames = filesWithNames.map(item => {
       const customName = item.customFilename.trim();
       const extension = item.file.name.match(/\.[^/.]+$/)?.[0] || '';
@@ -133,11 +142,9 @@ export function MultiFileUploadForm({
     
     const duplicates: string[] = [];
     
-    // Check against pending and uploading tasks in the same directory
     queueTasks.forEach(task => {
-      // Only check tasks in the same directory (same activity_type, year, month)
       if (task.activityType === activityType && 
-          task.activityDate.startsWith(activityDate.substring(0, 7))) { // Same year-month
+          task.activityDate.startsWith(activityDate.substring(0, 7))) {
         
         task.files.forEach(fileItem => {
           const customName = fileItem.customFilename?.trim();
@@ -153,7 +160,7 @@ export function MultiFileUploadForm({
     
     return {
       hasDuplicates: duplicates.length > 0,
-      duplicateFiles: [...new Set(duplicates)] // Remove duplicates
+      duplicateFiles: [...new Set(duplicates)]
     };
   };
 
@@ -173,11 +180,9 @@ export function MultiFileUploadForm({
       return;
     }
 
-    // Check against queue
     const queueCheck = checkQueueDuplicates();
     if (queueCheck.hasDuplicates) {
       showToast.error(`检测到 ${queueCheck.duplicateFiles.length} 个文件名与队列中的任务重复`);
-      // Show which files are duplicated
       alert(
         `以下文件名与队列中的任务重复：\n\n${queueCheck.duplicateFiles.join('\n')}\n\n` +
         `请修改这些文件的自定义名称后再提交。`
@@ -185,7 +190,6 @@ export function MultiFileUploadForm({
       return;
     }
 
-    // Check against database
     setIsCheckingFilenames(true);
     try {
       const finalFilenames = filesWithNames.map(item => {
@@ -206,7 +210,6 @@ export function MultiFileUploadForm({
         return;
       }
 
-      // Clear existing files check
       onExistingFilesChange(new Set());
     } catch (error) {
       console.error('Failed to check filenames:', error);
@@ -223,10 +226,9 @@ export function MultiFileUploadForm({
       })),
       activityDate,
       activityType,
-      instructor,
+      activityName: activityName.trim() || undefined,
     });
 
-    savePreferences();
     showToast.success(`已添加 ${filesWithNames.length} 个文件到上传队列`);
     
     queryClient.invalidateQueries({ queryKey: ['files'] });
@@ -235,13 +237,7 @@ export function MultiFileUploadForm({
     onUploadComplete();
   };
 
-  const isFormValid = activityDate && activityType && instructor && filesWithNames.length > 0;
-
-  const getFileDisplayName = (item: FileWithCustomName) => {
-    const customName = item.customFilename.trim();
-    const extension = item.file.name.match(/\.[^/.]+$/)?.[0] || '';
-    return customName ? `${customName}${extension}` : item.file.name;
-  };
+  const isFormValid = activityDate && activityType && filesWithNames.length > 0;
 
   if (filesWithNames.length === 0) return null;
 
@@ -267,6 +263,7 @@ export function MultiFileUploadForm({
 
       <div className="p-4 md:p-6">
         <div className="space-y-4 md:space-y-0 md:grid md:grid-cols-2 md:gap-6">
+          {/* Left column - Calendar (desktop only) */}
           <div className="hidden md:block space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
               <svg className="w-4 h-4 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -280,6 +277,9 @@ export function MultiFileUploadForm({
               value={activityDate}
               onChange={(value) => {
                 setActivityDate(value);
+                setActivityName('');
+                setActivityType('');
+                setIsNewActivity(false);
                 if (errors.activityDate) setErrors({ ...errors, activityDate: undefined });
               }}
               disabled={false}
@@ -295,7 +295,9 @@ export function MultiFileUploadForm({
             )}
           </div>
 
+          {/* Right column - Activity Name and Type */}
           <div className="space-y-4">
+            {/* Mobile date picker */}
             <div className="md:hidden space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
                 <svg className="w-4 h-4 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -310,6 +312,9 @@ export function MultiFileUploadForm({
                 value={activityDate}
                 onChange={(e) => {
                   setActivityDate(e.target.value);
+                  setActivityName('');
+                  setActivityType('');
+                  setIsNewActivity(false);
                   if (errors.activityDate) setErrors({ ...errors, activityDate: undefined });
                 }}
                 className={`w-full px-3 py-2.5 text-sm border rounded-lg transition-colors
@@ -330,6 +335,71 @@ export function MultiFileUploadForm({
               )}
             </div>
 
+            {/* Activity Name - First */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
+                <svg className="w-4 h-4 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                活动名称
+                <span className="text-xs text-accent-gray ml-1">(可选)</span>
+              </div>
+              
+              {loadingActivityNames ? (
+                <div className="flex items-center gap-2 text-sm text-accent-gray py-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-accent-green border-t-transparent"></div>
+                  <span>加载当日活动...</span>
+                </div>
+              ) : existingActivityNames.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {existingActivityNames.map((activity) => (
+                      <button
+                        key={activity.name}
+                        type="button"
+                        onClick={() => handleActivityNameSelect(activity.name)}
+                        className={`px-3 py-1.5 text-sm rounded-lg border transition-colors
+                          ${activityName === activity.name && !isNewActivity
+                            ? 'bg-accent-green text-white border-accent-green'
+                            : 'bg-white text-primary-black border-accent-gray/30 hover:border-accent-green'
+                          }`}
+                      >
+                        {activity.name}
+                        <span className="ml-1 text-xs opacity-70">({activity.activity_type_display})</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-accent-gray">或</span>
+                    <input
+                      type="text"
+                      value={isNewActivity ? activityName : ''}
+                      onChange={(e) => handleNewActivityName(e.target.value)}
+                      placeholder="输入新活动名称"
+                      className="flex-1 px-3 py-2 text-sm border border-accent-gray/30 rounded-lg transition-colors
+                        focus:outline-none focus:ring-2 focus:border-accent-green focus:ring-accent-green/20"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-accent-gray">当日暂无已上传的活动</p>
+                  <input
+                    type="text"
+                    value={activityName}
+                    onChange={(e) => handleNewActivityName(e.target.value)}
+                    placeholder="输入活动名称（如：周末团建、新年晚会）"
+                    className="w-full px-3 py-2.5 text-sm border border-accent-gray/30 rounded-lg transition-colors
+                      focus:outline-none focus:ring-2 focus:border-accent-green focus:ring-accent-green/20"
+                  />
+                </div>
+              )}
+              <p className="text-xs text-accent-gray">
+                选择已有活动将自动使用其活动类型
+              </p>
+            </div>
+
+            {/* Activity Type - Second */}
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
                 <svg className="w-4 h-4 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -339,75 +409,43 @@ export function MultiFileUploadForm({
                 <span className="text-semantic-error">*</span>
               </div>
               
-              <FlexibleTagInput
-                label=""
+              <select
                 value={activityType}
-                onChange={(value) => {
-                  setActivityType(value);
+                onChange={(e) => {
+                  setActivityType(e.target.value);
                   if (errors.activityType) setErrors({ ...errors, activityType: undefined });
                 }}
-                options={activityTypes}
-                placeholder="选择或添加活动类型"
-                required
-                error={errors.activityType}
-                disabled={loadingActivityTypes}
-                allowCustom={true}
-                onAddNew={async (value, displayName) => {
-                  try {
-                    await addTagPreset({
-                      category: 'activity_type',
-                      value,
-                      display_name: displayName,
-                    });
-                    queryClient.invalidateQueries({ queryKey: ['tag-presets', 'activity_type'] });
-                    showToast.success(`已添加新活动类型：${displayName}`);
-                  } catch (error) {
-                    console.error('Failed to add activity type:', error);
-                    showToast.error('添加活动类型失败');
-                    throw error;
+                disabled={loadingActivityTypes || (!isNewActivity && !!activityName && existingActivityNames.some(a => a.name === activityName))}
+                className={`w-full px-3 py-2.5 text-sm border rounded-lg transition-colors
+                  ${errors.activityType 
+                    ? 'border-semantic-error focus:border-semantic-error focus:ring-semantic-error/20' 
+                    : 'border-accent-gray/30 focus:border-accent-green focus:ring-accent-green/20'
                   }
-                }}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
-                <svg className="w-4 h-4 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                带训老师
-                <span className="text-semantic-error">*</span>
-              </div>
+                  focus:outline-none focus:ring-2
+                  disabled:bg-accent-gray/10 disabled:cursor-not-allowed`}
+              >
+                <option value="">选择活动类型</option>
+                {activityTypes.map((type) => (
+                  <option key={type.id} value={type.value}>
+                    {type.display_name}
+                  </option>
+                ))}
+              </select>
               
-              <FlexibleTagInput
-                label=""
-                value={instructor}
-                onChange={(value) => {
-                  setInstructor(value);
-                  if (errors.instructor) setErrors({ ...errors, instructor: undefined });
-                }}
-                options={instructors}
-                placeholder="选择或添加带训老师"
-                required
-                error={errors.instructor}
-                disabled={loadingInstructors}
-                allowCustom={true}
-                onAddNew={async (value, displayName) => {
-                  try {
-                    await addTagPreset({
-                      category: 'instructor',
-                      value,
-                      display_name: displayName,
-                    });
-                    queryClient.invalidateQueries({ queryKey: ['tag-presets', 'instructor'] });
-                    showToast.success(`已添加新带训老师：${displayName}`);
-                  } catch (error) {
-                    console.error('Failed to add instructor:', error);
-                    showToast.error('添加带训老师失败');
-                    throw error;
-                  }
-                }}
-              />
+              {!isNewActivity && activityName && existingActivityNames.some(a => a.name === activityName) && (
+                <p className="text-xs text-accent-gray">
+                  已自动选择该活动的类型
+                </p>
+              )}
+              
+              {errors.activityType && (
+                <p className="text-xs text-semantic-error flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  {errors.activityType}
+                </p>
+              )}
             </div>
           </div>
         </div>
