@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'funkandlove-cloud.s3.bitiful.net',
+        hostname: 'funkandlove-cloud2.s3.bitiful.net',
         pathname: '/**',
       },
       {

@@ -1,28 +1,28 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface LoadingAnimationProps {
   text?: string;
   className?: string;
   onAnimationComplete?: () => void;
-  minDisplayTime?: number; // Minimum time to display in ms (default: one GIF loop ~2s)
+  minDisplayTime?: number; // Minimum time to display GIF after loaded (default: 2s)
 }
 
 /**
  * LoadingAnimation - Hand-drawn style loading component
  * This component maintains the hand-drawn aesthetic for auth pages and initial loading
  * Uses animated emoji GIFs to create a playful, branded loading experience
+ * GIF will be shown for at least minDisplayTime after it loads
  */
 export function LoadingAnimation({ 
   text = '加载中...', 
   className = '',
   onAnimationComplete,
-  minDisplayTime = 2000 // Default to 2 seconds (typical GIF duration)
+  minDisplayTime = 2000 // Default to 2 seconds after GIF loads
 }: LoadingAnimationProps) {
   const [emojiNumber, setEmojiNumber] = useState<number | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
-  const startTimeRef = useRef<number>(Date.now());
   const hasNotifiedRef = useRef(false);
   
   // Set emoji number only on client side to avoid hydration mismatch
@@ -31,27 +31,29 @@ export function LoadingAnimation({
   }, []);
   
   const emojiUrl = emojiNumber 
-    ? `https://funkandlove-main.s3.bitiful.net/public/lockingemoji/${emojiNumber}.gif`
+    ? `https://funkandlove-main.s3.bitiful.net/mainproject/lockingemojigif/lockingemoji/${emojiNumber}.gif`
     : '';
   
+  // Fallback: if image doesn't trigger onLoad within 5s, consider it loaded anyway
   useEffect(() => {
-    const img = new Image();
-    img.src = emojiUrl;
-    img.onload = () => setImageLoaded(true);
-  }, [emojiUrl]);
+    if (!emojiUrl || imageLoaded) return;
+    
+    const fallbackTimer = setTimeout(() => {
+      setImageLoaded(true);
+    }, 5000);
+    
+    return () => clearTimeout(fallbackTimer);
+  }, [emojiUrl, imageLoaded]);
   
+  // Wait for GIF to load, then wait minDisplayTime before calling onAnimationComplete
   useEffect(() => {
     if (!imageLoaded || !onAnimationComplete || hasNotifiedRef.current) return;
     
-    // Calculate how long we've been showing the animation
-    const elapsed = Date.now() - startTimeRef.current;
-    const remainingTime = Math.max(0, minDisplayTime - elapsed);
-    
-    // Wait for the remaining time, then notify parent
+    // GIF has loaded, now wait minDisplayTime before completing
     const timer = setTimeout(() => {
       hasNotifiedRef.current = true;
       onAnimationComplete();
-    }, remainingTime);
+    }, minDisplayTime);
     
     return () => clearTimeout(timer);
   }, [imageLoaded, onAnimationComplete, minDisplayTime]);
@@ -59,7 +61,8 @@ export function LoadingAnimation({
   return (
     <div className={`flex flex-col items-center justify-center gap-4 ${className}`}>
       <div className="relative w-32 h-32">
-        {(!imageLoaded || !emojiNumber) && (
+        {/* Show spinner while waiting for emoji number or image to load */}
+        {(!emojiNumber || !imageLoaded) && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-12 h-12 border-4 border-accent-orange border-t-transparent rounded-full animate-spin" />
           </div>

@@ -1,5 +1,7 @@
-/* 使用字节跳动镜像加载 Google Fonts */
-@import url('https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=Caveat:wght@400;700&display=swap');
+/* 使用国内CDN镜像加载字体 - 避免Google Fonts连接问题 */
+/* Inter字体通过layout.tsx的link标签加载 */
+/* Caveat手写字体使用loli.net镜像 */
+@import url('https://fonts.loli.net/css2?family=Caveat:wght@400;700&display=swap');
 @import "tailwindcss";
 @import "./plyr-custom.css";
 

@@ -18,13 +18,6 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     
-    # AI usage statistics
-    ai_total_prompt_tokens = db.Column(db.Integer, default=0, nullable=False)
-    ai_total_completion_tokens = db.Column(db.Integer, default=0, nullable=False)
-    ai_total_tokens = db.Column(db.Integer, default=0, nullable=False)
-    ai_total_cost = db.Column(db.Float, default=0.0, nullable=False)
-    ai_conversation_count = db.Column(db.Integer, default=0, nullable=False)
-    
     # Relationships
     files = db.relationship('File', backref='uploader', lazy='dynamic')
     logs = db.relationship('FileLog', backref='user', lazy='dynamic')
@@ -46,12 +39,5 @@ class User(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None,
             'is_active': self.is_active,
-            'is_admin': self.is_admin,
-            'ai_stats': {
-                'total_prompt_tokens': self.ai_total_prompt_tokens or 0,
-                'total_completion_tokens': self.ai_total_completion_tokens or 0,
-                'total_tokens': self.ai_total_tokens or 0,
-                'total_cost': self.ai_total_cost or 0.0,
-                'conversation_count': self.ai_conversation_count or 0
-            }
+            'is_admin': self.is_admin
         }

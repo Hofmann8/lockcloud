@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { File } from '@/types';
+import { File, FreeTag } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { useFileStore } from '@/stores/fileStore';
 import { Button } from './Button';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
+import { FileTagEditor } from './FileTagEditor';
 import { zhCN } from '@/locales/zh-CN';
 import toast from 'react-hot-toast';
 
@@ -117,61 +118,70 @@ export function FileMetadata({ file, onFileUpdate }: FileMetadataProps) {
         </div>
 
         {/* Activity Information */}
-        {(file.activity_date || file.activity_type_display || file.instructor_display) && (
-          <div className="space-y-3 sm:space-y-4">
-            <h3 className="text-sm font-semibold text-primary-black" id="activity-info-heading">
-              活动信息
-            </h3>
-            
-            {file.activity_date && (
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-accent-gray mb-1">
-                    {zhCN.files.activityDate}
-                  </p>
-                  <p className="text-sm font-medium text-primary-black">
-                    {formatActivityDate(file.activity_date)}
-                  </p>
-                </div>
-              </div>
-            )}
-            
-            {file.activity_type_display && (
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-accent-gray mb-1">
-                    {zhCN.files.activityType}
-                  </p>
-                  <p className="text-sm font-medium text-primary-black">
-                    {file.activity_type_display}
-                  </p>
-                </div>
-              </div>
-            )}
-            
-            {file.instructor_display && (
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-accent-gray mb-1">
-                    {zhCN.files.instructor}
-                  </p>
-                  <p className="text-sm font-medium text-primary-black">
-                    {file.instructor_display}
-                  </p>
-                </div>
-              </div>
-            )}
+        <div className="space-y-3 sm:space-y-4">
+          <h3 className="text-sm font-semibold text-primary-black" id="activity-info-heading">
+            活动信息
+          </h3>
+          
+          {/* 活动日期 */}
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-accent-gray mb-1">
+                {zhCN.files.activityDate}
+              </p>
+              <p className="text-sm font-medium text-primary-black">
+                {file.activity_date ? formatActivityDate(file.activity_date) : '-'}
+              </p>
+            </div>
           </div>
-        )}
+          
+          {/* 活动类型 */}
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-accent-gray mb-1">
+                {zhCN.files.activityType}
+              </p>
+              <p className="text-sm font-medium text-primary-black">
+                {file.activity_type_display || '-'}
+              </p>
+            </div>
+          </div>
+          
+          {/* 活动名称 */}
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-accent-gray mb-1">
+                活动名称
+              </p>
+              <p className="text-sm font-medium text-primary-black">
+                {file.activity_name || '-'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Free Tags Section - Requirements 3.4, 8.4 */}
+        <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4 border-t border-accent-gray/20">
+          <FileTagEditor
+            fileId={file.id}
+            tags={file.free_tags || []}
+            onTagsChange={(updatedTags: FreeTag[]) => {
+              // Update will be handled by query invalidation in FileTagEditor
+              onFileUpdate?.();
+            }}
+            showLabel={true}
+            label="自由标签"
+          />
+        </div>
 
         {/* File Details */}
         <div className="space-y-2.5 sm:space-y-3 pt-3 sm:pt-4 border-t border-accent-gray/20">

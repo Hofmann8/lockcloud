@@ -30,7 +30,6 @@ export function Navbar() {
   const navLinks = [
     { href: '/files', label: '文件' },
     { href: '/upload', label: '上传' },
-    { href: '/ai', label: 'LockAI' },
     { href: '/changelog', label: '更新日志' },
     ...(user?.is_admin ? [{ href: '/admin', label: '管理' }] : []),
   ];

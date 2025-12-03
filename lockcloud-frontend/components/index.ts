@@ -28,3 +28,18 @@ export { FileCardSimple } from './FileCardSimple';
 export { ImagePreview } from './ImagePreview';
 export { PreviewContainer, PreviewArea } from './PreviewContainer';
 export { PathBreadcrumb } from './PathBreadcrumb';
+
+// Filter components
+export { MediaTypeFilter } from './MediaTypeFilter';
+export type { MediaType } from './MediaTypeFilter';
+export { FreeTagFilter } from './FreeTagFilter';
+export { FilterPanel } from './FilterPanel';
+
+// Timeline and Batch Selection components
+export { TimelineView } from './TimelineView';
+export { SelectableFileCard, BatchSelectionHeader } from './BatchSelection';
+export { BatchActionToolbar } from './BatchActionToolbar';
+
+// Tag Input components
+export { TagInput } from './TagInput';
+export { FileTagEditor } from './FileTagEditor';

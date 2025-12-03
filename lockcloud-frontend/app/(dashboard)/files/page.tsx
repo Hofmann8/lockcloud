@@ -1,34 +1,58 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useState, useCallback, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { listFiles } from '@/lib/api/files';
-import { FileFilters } from '@/types';
+import { FileFilters, File } from '@/types';
 import { FileGrid } from '@/components/FileGrid';
-import { UnifiedSearch } from '@/components/UnifiedSearch';
+import { TimelineView } from '@/components/TimelineView';
 import { FileGridSkeleton } from '@/components/SkeletonLoader';
 import { Pagination } from '@/components/Pagination';
 import { Card } from '@/components/Card';
 import { ErrorCard } from '@/components/ErrorCard';
 import { MobileMenuButton } from '@/components/MobileMenuButton';
+import { SelectableFileCard, BatchSelectionHeader } from '@/components/BatchSelection';
+import { BatchActionToolbar } from '@/components/BatchActionToolbar';
+import { FileCardSimple } from '@/components/FileCardSimple';
+import { useBatchSelectionStore } from '@/stores/batchSelectionStore';
 import { zhCN } from '@/locales/zh-CN';
+
+type ViewMode = 'grid' | 'timeline';
+type MediaType = 'all' | 'image' | 'video';
 
 function FilesPageContent() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
+  const { clearSelection } = useBatchSelectionStore();
   
-  // Derive filters directly from URL parameters (no state needed)
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [tagInput, setTagInput] = useState('');
+  
+  // Get current filter values from URL
+  const currentMediaType = (searchParams.get('media_type') as MediaType) || 'all';
+  const currentTags = useMemo(() => 
+    searchParams.get('tags')?.split(',').filter(Boolean) || [], 
+    [searchParams]
+  );
+  
+  // Derive filters directly from URL parameters
   const filters: FileFilters = {
     page: parseInt(searchParams.get('page') || '1', 10),
     per_page: parseInt(searchParams.get('per_page') || '12', 10),
     ...(searchParams.get('directory') && { directory: searchParams.get('directory')! }),
     ...(searchParams.get('activity_type') && { activity_type: searchParams.get('activity_type')! }),
+    ...(searchParams.get('activity_name') && { activity_name: searchParams.get('activity_name')! }),
+    ...(searchParams.get('activity_date') && { activity_date: searchParams.get('activity_date')! }),
     ...(searchParams.get('instructor') && { instructor: searchParams.get('instructor')! }),
     ...(searchParams.get('date_from') && { date_from: searchParams.get('date_from')! }),
     ...(searchParams.get('date_to') && { date_to: searchParams.get('date_to')! }),
     ...(searchParams.get('search') && { search: searchParams.get('search')! }),
+    ...(searchParams.get('media_type') && { media_type: searchParams.get('media_type') as MediaType }),
+    ...(searchParams.get('tags') && { tags: currentTags }),
+    ...(searchParams.get('year') && { year: parseInt(searchParams.get('year')!, 10) }),
+    ...(searchParams.get('month') && { month: parseInt(searchParams.get('month')!, 10) }),
   };
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -36,62 +60,220 @@ function FilesPageContent() {
     queryFn: () => listFiles(filters),
   });
 
-  const handleFilterChange = (newFilters: Partial<FileFilters>) => {
-    const params = new URLSearchParams(searchParams.toString());
-    
-    // Update or remove parameters
-    Object.entries(newFilters).forEach(([key, value]) => {
-      if (value) {
-        params.set(key, String(value));
-      } else {
-        params.delete(key);
-      }
-    });
-    
-    // Reset to page 1 when filters change
-    params.set('page', '1');
-    
-    // Update URL using Next.js router
-    router.push(`/files?${params.toString()}`);
-  };
+  useEffect(() => {
+    clearSelection();
+  }, [searchParams, clearSelection]);
 
-  const handlePageChange = (page: number) => {
+  // Media type change - immediate
+  const handleMediaTypeChange = useCallback((type: MediaType) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (type !== 'all') {
+      params.set('media_type', type);
+    } else {
+      params.delete('media_type');
+    }
+    params.set('page', '1');
+    router.push(`/files?${params.toString()}`);
+  }, [searchParams, router]);
+
+  // Add tag
+  const handleAddTag = useCallback(() => {
+    if (!tagInput.trim()) return;
+    const params = new URLSearchParams(searchParams.toString());
+    const newTags = [...currentTags, ...tagInput.split(',').map(t => t.trim()).filter(t => t && !currentTags.includes(t))];
+    if (newTags.length > 0) {
+      params.set('tags', newTags.join(','));
+    }
+    params.set('page', '1');
+    router.push(`/files?${params.toString()}`);
+    setTagInput('');
+  }, [tagInput, currentTags, searchParams, router]);
+
+  // Remove tag
+  const handleRemoveTag = useCallback((tagToRemove: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    const newTags = currentTags.filter(t => t !== tagToRemove);
+    if (newTags.length > 0) {
+      params.set('tags', newTags.join(','));
+    } else {
+      params.delete('tags');
+    }
+    params.set('page', '1');
+    router.push(`/files?${params.toString()}`);
+  }, [currentTags, searchParams, router]);
+
+  const handlePageChange = useCallback((page: number) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('page', String(page));
     router.push(`/files?${params.toString()}`);
-    // 滚动到顶部
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, [searchParams, router]);
 
-  const handlePerPageChange = (perPage: number) => {
+  const handlePerPageChange = useCallback((perPage: number) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('per_page', String(perPage));
-    params.set('page', '1'); // 重置到第一页
+    params.set('page', '1');
     router.push(`/files?${params.toString()}`);
-  };
+  }, [searchParams, router]);
 
-  const handleFileUpdate = () => {
-    // Refetch file list
+  const handleFileUpdate = useCallback(() => {
     refetch();
-    // Also invalidate directory tree to update file counts
     queryClient.invalidateQueries({ queryKey: ['directories'] });
-  };
+  }, [refetch, queryClient]);
+
+  const renderSelectableFileCard = useCallback((file: File) => (
+    <SelectableFileCard file={file}>
+      <FileCardSimple file={file} onFileUpdate={handleFileUpdate} />
+    </SelectableFileCard>
+  ), [handleFileUpdate]);
+
+  // Build breadcrumb from current filters
+  const breadcrumb = useMemo(() => {
+    const parts: { label: string; href: string }[] = [{ label: '全部文件', href: '/files' }];
+    const year = searchParams.get('year');
+    const month = searchParams.get('month');
+    const activityName = searchParams.get('activity_name');
+    
+    if (year) {
+      parts.push({ label: `${year}年`, href: `/files?year=${year}` });
+      if (month) {
+        parts.push({ label: `${month}月`, href: `/files?year=${year}&month=${month}` });
+        if (activityName) {
+          parts.push({ label: activityName, href: '' });
+        }
+      }
+    }
+    return parts;
+  }, [searchParams]);
 
   return (
-    <div className="space-y-4 md:space-y-6">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <MobileMenuButton />
-          <h1 className="text-2xl md:text-3xl font-sans font-bold text-primary-black">
-            {zhCN.files.title}
-          </h1>
+    <div className="space-y-4">
+      {/* Row 1: Breadcrumb Navigation */}
+      <div className="flex items-center gap-2 text-sm">
+        <MobileMenuButton />
+        {breadcrumb.map((item, index) => (
+          <span key={item.label} className="flex items-center gap-2">
+            {index > 0 && <span className="text-gray-300">/</span>}
+            {index === breadcrumb.length - 1 || !item.href ? (
+              <span className="font-medium text-black">{item.label}</span>
+            ) : (
+              <button
+                onClick={() => router.push(item.href)}
+                className="text-gray-500 hover:text-orange-500 transition-colors"
+              >
+                {item.label}
+              </button>
+            )}
+          </span>
+        ))}
+        {data && (
+          <span className="text-gray-400 ml-1">({data.pagination.total})</span>
+        )}
+      </div>
+
+      {/* Row 2: All Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Left: Selection + Media Type + Tags */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Batch Selection */}
+          {data && data.files.length > 0 && (
+            <>
+              <BatchSelectionHeader files={data.files} />
+              <div className="h-5 w-px bg-gray-200 hidden sm:block" />
+            </>
+          )}
+
+          {/* Media Type Pills */}
+          <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
+            {[
+              { value: 'all' as MediaType, label: '全部' },
+              { value: 'image' as MediaType, label: '图片' },
+              { value: 'video' as MediaType, label: '视频' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => handleMediaTypeChange(value)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                  currentMediaType === value
+                    ? 'bg-white shadow-sm text-black'
+                    : 'text-gray-500 hover:text-black'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Current Tags */}
+          {currentTags.map(tag => (
+            <span 
+              key={tag}
+              className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-500 text-xs rounded-full"
+            >
+              {tag}
+              <button onClick={() => handleRemoveTag(tag)} className="hover:text-red-500">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))}
+
+          {/* Tag Input */}
+          <div className="flex items-center">
+            <input
+              type="text"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
+              placeholder="+ 标签"
+              className="w-16 sm:w-20 px-2 py-1 text-xs border border-gray-200 rounded-md 
+                focus:outline-none focus:border-orange-500 placeholder:text-gray-400"
+            />
+          </div>
+        </div>
+
+        {/* Right: Per Page + View Toggle */}
+        <div className="flex items-center gap-2">
+          <select
+            value={filters.per_page}
+            onChange={(e) => handlePerPageChange(parseInt(e.target.value))}
+            className="px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:border-orange-500 bg-white"
+          >
+            <option value={12}>12</option>
+            <option value={24}>24</option>
+            <option value={48}>48</option>
+            <option value={96}>96</option>
+          </select>
+
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded-md transition-colors ${
+                viewMode === 'grid' ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-black'
+              }`}
+              title="网格"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setViewMode('timeline')}
+              className={`p-1.5 rounded-md transition-colors ${
+                viewMode === 'timeline' ? 'bg-white shadow-sm text-black' : 'text-gray-500 hover:text-black'
+              }`}
+              title="列表"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Unified Search */}
-      <UnifiedSearch filters={filters} onFilterChange={handleFilterChange} />
-
-      {/* Loading State with Skeleton */}
+      {/* Loading State */}
       {isLoading && <FileGridSkeleton count={6} />}
 
       {/* Error State */}
@@ -100,10 +282,7 @@ function FilesPageContent() {
           title="加载失败"
           message={zhCN.errors.serverError}
           variant="error"
-          action={{
-            label: "重试",
-            onClick: () => window.location.reload()
-          }}
+          action={{ label: "重试", onClick: () => window.location.reload() }}
         />
       )}
 
@@ -111,37 +290,28 @@ function FilesPageContent() {
       {!isLoading && !error && data && data.files.length === 0 && (
         <Card variant="bordered" padding="lg">
           <div className="text-center">
-            <p className="text-accent-gray text-lg">{zhCN.files.noFiles}</p>
+            <p className="text-gray-500">{zhCN.files.noFiles}</p>
           </div>
         </Card>
       )}
 
-      {/* File Grid */}
+      {/* File List */}
       {!isLoading && !error && data && data.files.length > 0 && (
         <>
-          {/* 每页显示数量选择器 */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-accent-gray">每页显示</span>
-              <select
-                value={filters.per_page}
-                onChange={(e) => handlePerPageChange(parseInt(e.target.value))}
-                className="px-3 py-1.5 text-sm border border-accent-gray/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-blue/20 bg-white"
-              >
-                <option value={12}>12</option>
-                <option value={24}>24</option>
-                <option value={48}>48</option>
-                <option value={96}>96</option>
-              </select>
-              <span className="text-sm text-accent-gray">项</span>
-            </div>
-            
-            <div className="text-sm text-accent-gray">
-              共 <span className="font-medium text-primary-black">{data.pagination.total}</span> 个文件
-            </div>
-          </div>
-
-          <FileGrid files={data.files} onFileUpdate={handleFileUpdate} />
+          {/* File View */}
+          {viewMode === 'grid' ? (
+            <FileGrid 
+              files={data.files} 
+              onFileUpdate={handleFileUpdate}
+              renderFileCard={renderSelectableFileCard}
+            />
+          ) : (
+            <TimelineView 
+              files={data.files} 
+              onFileUpdate={handleFileUpdate}
+              renderFileCard={renderSelectableFileCard}
+            />
+          )}
           
           {/* Pagination */}
           {data.pagination.total > data.pagination.per_page && (
@@ -157,10 +327,11 @@ function FilesPageContent() {
           )}
         </>
       )}
+
+      <BatchActionToolbar onOperationComplete={handleFileUpdate} />
     </div>
   );
 }
-
 
 export default function FilesPage() {
   return (

@@ -98,7 +98,7 @@ function detectBestImageFormat(): 'webp' | 'avif' | 'jpeg' {
  * @returns Complete S3 URL with processing parameters
  */
 export function buildS3ImageUrl(s3Key: string, options?: ImageUrlOptions): string {
-  const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud.s3.bitiful.net';
+  const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud2.s3.bitiful.net';
   
   // If no options provided, return base URL
   if (!options || (!options.width && !options.quality && !options.format)) {

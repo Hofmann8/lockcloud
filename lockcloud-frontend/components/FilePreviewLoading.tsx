@@ -10,39 +10,28 @@ interface FilePreviewLoadingProps {
 /**
  * FilePreviewLoading - Loading component for file preview system
  * Uses random emoji GIFs similar to the global LoadingAnimation but optimized for file previews
+ * Note: GIF is shown immediately without waiting for load event to avoid display issues
  */
 export function FilePreviewLoading({ 
   text = '加载中...', 
   className = ''
 }: FilePreviewLoadingProps) {
   const [emojiNumber, setEmojiNumber] = useState<number | null>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
   
   // Set emoji number only on client side to avoid hydration mismatch
   useEffect(() => {
     const randomNum = Math.floor(Math.random() * 16) + 1;
-    console.log('FilePreviewLoading: Selected emoji number:', randomNum);
     setEmojiNumber(randomNum);
   }, []);
   
   const emojiUrl = emojiNumber 
-    ? `https://funkandlove-main.s3.bitiful.net/public/lockingemoji/${emojiNumber}.gif`
+    ? `https://funkandlove-main.s3.bitiful.net/mainproject/lockingemojigif/lockingemoji/${emojiNumber}.gif`
     : '';
-  
-  useEffect(() => {
-    if (emojiUrl) {
-      console.log('FilePreviewLoading: Loading emoji from:', emojiUrl);
-    }
-  }, [emojiUrl]);
-  
-  useEffect(() => {
-    console.log('FilePreviewLoading: imageLoaded =', imageLoaded);
-  }, [imageLoaded]);
   
   return (
     <div className={`flex flex-col items-center justify-center gap-4 ${className}`}>
       <div className="relative w-32 h-32">
-        {(!imageLoaded || !emojiNumber) && (
+        {!emojiNumber && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin" />
           </div>
@@ -51,16 +40,7 @@ export function FilePreviewLoading({
           <img
             src={emojiUrl}
             alt="Loading"
-            className={`w-full h-full object-contain transition-opacity duration-300 ${
-              imageLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
-            onLoad={() => {
-              console.log('FilePreviewLoading: Image loaded successfully');
-              setImageLoaded(true);
-            }}
-            onError={() => {
-              console.error('FilePreviewLoading: Failed to load image:', emojiUrl);
-            }}
+            className="w-full h-full object-contain"
           />
         )}
       </div>

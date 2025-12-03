@@ -19,23 +19,7 @@ def configure_logging(app):
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     
-    # 1. AI 专用日志文件（包含联网搜索）
-    ai_log_file = os.path.join(log_dir, 'ai_service.log')
-    ai_handler = RotatingFileHandler(
-        ai_log_file,
-        maxBytes=10 * 1024 * 1024,  # 10MB
-        backupCount=5,
-        encoding='utf-8'
-    )
-    ai_handler.setLevel(logging.DEBUG)
-    ai_handler.setFormatter(detailed_formatter)
-    
-    # 配置 AI 相关模块的日志
-    ai_logger = logging.getLogger('ai')
-    ai_logger.setLevel(logging.DEBUG)
-    ai_logger.addHandler(ai_handler)
-    
-    # 2. 应用主日志文件
+    # 应用主日志文件
     app_log_file = os.path.join(log_dir, 'app.log')
     app_handler = RotatingFileHandler(
         app_log_file,
@@ -49,9 +33,8 @@ def configure_logging(app):
     # 配置 Flask 应用日志
     app.logger.setLevel(logging.INFO)
     app.logger.addHandler(app_handler)
-    app.logger.addHandler(ai_handler)  # 也输出到 AI 日志
     
-    # 3. 控制台输出（生产环境也保留，方便调试）
+    # 控制台输出（生产环境也保留，方便调试）
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_formatter = logging.Formatter(
@@ -64,7 +47,6 @@ def configure_logging(app):
     # 记录启动信息
     app.logger.info('=' * 80)
     app.logger.info('LockCloud 日志系统已启动')
-    app.logger.info(f'AI 日志文件: {ai_log_file}')
     app.logger.info(f'应用日志文件: {app_log_file}')
     app.logger.info('=' * 80)
 
@@ -160,7 +142,6 @@ def create_app(config_name=None):
         from auth.models import User
         from files.models import File, TagPreset
         from logs.models import FileLog
-        from ai.models import AIConversation, AIMessage
     
     # Register error handlers
     register_error_handlers(app)
@@ -171,13 +152,13 @@ def create_app(config_name=None):
     from logs.routes import logs_bp
     from tag_presets.routes import tag_presets_bp
     from admin.routes import admin_bp
-    from ai.routes import ai_bp
+    from tags.routes import tags_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(files_bp, url_prefix='/api/files')
     app.register_blueprint(logs_bp, url_prefix='/api/logs')
     app.register_blueprint(tag_presets_bp, url_prefix='/api/tag-presets')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
-    app.register_blueprint(ai_bp, url_prefix='/api/ai')
+    app.register_blueprint(tags_bp, url_prefix='/api/tags')
     
     # Health check endpoint
     @app.route('/')

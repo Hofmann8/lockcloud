@@ -46,15 +46,6 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} ${zhCN.units.gb}`;
   };
 
-  // 格式化日期
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    const day = date.getDate();
-    return `${year}${zhCN.units.year}${month}${zhCN.units.month}${day}${zhCN.units.day}`;
-  };
-
   const formatActivityDate = (dateString: string): string => {
     const [year, month, day] = dateString.split('-');
     return `${year}${zhCN.units.year}${month}${zhCN.units.month}${day}${zhCN.units.day}`;
@@ -74,7 +65,7 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
   const getThumbnailUrl = (): string | null => {
     if (!file.s3_key) return null;
     
-    const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud.s3.bitiful.net';
+    const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud2.s3.bitiful.net';
     
     // 视频：使用 S3 提供的视频第一帧服务
     if (isVideo) {
@@ -187,133 +178,80 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
         </div>
 
         {/* 文件信息 */}
-        <div className="p-4 space-y-3">
+        <div className="p-3 space-y-2.5">
           {/* 文件名 */}
-          <div>
-            <h3 className="font-semibold text-base text-primary-black truncate" title={file.filename}>
-              {file.filename}
-            </h3>
-            {file.original_filename && (
-              <p className="text-xs text-accent-gray mt-1 truncate" title={file.original_filename}>
-                原始文件名: {file.original_filename}
-              </p>
+          <h3 className="font-semibold text-sm text-primary-black truncate" title={file.filename}>
+            {file.filename}
+          </h3>
+
+          {/* 元数据 */}
+          <div className="space-y-1.5">
+            {/* 活动日期 */}
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-xs text-primary-black">{file.activity_date ? formatActivityDate(file.activity_date) : '-'}</span>
+            </div>
+            
+            {/* 活动类型 */}
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+              </svg>
+              <span className="text-xs text-primary-black">{file.activity_type_display || '-'}</span>
+            </div>
+            
+            {/* 活动名称 */}
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <span className="text-xs text-primary-black truncate" title={file.activity_name}>{file.activity_name || '-'}</span>
+            </div>
+          </div>
+
+          {/* 自由标签 */}
+          <div className="flex flex-wrap gap-1 min-h-[20px]">
+            {file.free_tags && file.free_tags.length > 0 ? (
+              <>
+                {file.free_tags.slice(0, 3).map(tag => (
+                  <span key={tag.id} className="px-1.5 py-0.5 text-xs bg-orange-50 text-orange-500 rounded">
+                    {tag.name}
+                  </span>
+                ))}
+                {file.free_tags.length > 3 && (
+                  <span className="text-xs text-accent-gray">+{file.free_tags.length - 3}</span>
+                )}
+              </>
+            ) : (
+              <span className="text-xs text-accent-gray">无标签</span>
             )}
           </div>
 
-          {/* Legacy 标记 */}
-          {file.is_legacy && (
-            <div>
-              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-md">
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                {zhCN.files.legacyFile}
-              </span>
-            </div>
-          )}
-
-          {/* 元数据 */}
-          <div className="space-y-2.5">
-            {/* 活动日期 */}
-            {file.activity_date && (
-              <div className="flex items-start gap-2">
-                <svg className="w-4 h-4 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-accent-gray">{zhCN.files.activityDate}</p>
-                  <p className="text-sm font-medium text-primary-black">{formatActivityDate(file.activity_date)}</p>
-                </div>
-              </div>
-            )}
-            
-            {/* 活动类型 */}
-            {file.activity_type_display && (
-              <div className="flex items-start gap-2">
-                <svg className="w-4 h-4 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-accent-gray">{zhCN.files.activityType}</p>
-                  <p className="text-sm font-medium text-primary-black">{file.activity_type_display}</p>
-                </div>
-              </div>
-            )}
-            
-            {/* 带训老师 */}
-            {file.instructor_display && (
-              <div className="flex items-start gap-2">
-                <svg className="w-4 h-4 text-accent-gray shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-accent-gray">{zhCN.files.instructor}</p>
-                  <p className="text-sm font-medium text-primary-black">{file.instructor_display}</p>
-                </div>
-              </div>
-            )}
-            
-            {/* 分隔线 */}
-            <div className="border-t border-accent-gray/20 pt-2.5">
-              {/* 文件大小 */}
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-accent-gray">{zhCN.files.fileSize}</span>
-                <span className="font-medium text-primary-black">{formatSize(file.size)}</span>
-              </div>
-              
-              {/* 上传日期 */}
-              <div className="flex justify-between items-center text-xs mt-1.5">
-                <span className="text-accent-gray">{zhCN.files.uploadDate}</span>
-                <span className="font-medium text-primary-black">{formatDate(file.uploaded_at)}</span>
-              </div>
-              
-              {/* 上传者 */}
-              <div className="flex justify-between items-center text-xs mt-1.5">
-                <span className="text-accent-gray">{zhCN.files.uploader}</span>
-                <span className="font-medium text-primary-black">{file.uploader?.name || 'Unknown'}</span>
-              </div>
-            </div>
+          {/* 底部信息 */}
+          <div className="flex items-center justify-between text-xs text-accent-gray pt-1.5 border-t border-accent-gray/15">
+            <span>{formatSize(file.size)}</span>
+            <span>{file.uploader?.name || '-'}</span>
           </div>
 
           {/* 操作按钮 */}
-          <div className="pt-2 space-y-2">
-            {/* Legacy 文件添加标签 */}
-            {file.is_legacy && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setIsTagEditorOpen(true)}
-                fullWidth
-              >
-                {zhCN.files.addTags}
+          {isOwner && (
+            <div className="flex gap-2 pt-1">
+              {file.is_legacy ? (
+                <Button variant="secondary" size="sm" onClick={() => setIsTagEditorOpen(true)} fullWidth>
+                  {zhCN.files.addTags}
+                </Button>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={() => setIsEditDialogOpen(true)} fullWidth>
+                  编辑
+                </Button>
+              )}
+              <Button variant="danger" size="sm" onClick={handleDeleteClick} disabled={isDeleting} fullWidth>
+                删除
               </Button>
-            )}
-            
-            {/* 编辑按钮 - 只有上传者可以编辑非legacy文件 */}
-            {isOwner && !file.is_legacy && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setIsEditDialogOpen(true)}
-                fullWidth
-              >
-                编辑信息
-              </Button>
-            )}
-            
-            {/* 删除按钮 */}
-            {isOwner && (
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={handleDeleteClick}
-                disabled={isDeleting}
-                fullWidth
-              >
-                {zhCN.common.delete}
-              </Button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </Card>
 

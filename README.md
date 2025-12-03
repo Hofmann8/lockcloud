@@ -272,7 +272,7 @@ MAIL_PASSWORD=your-password
 ### 前端 (.env.local)
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:5000
-NEXT_PUBLIC_S3_BASE_URL=https://funkandlove-cloud.s3.bitiful.net
+NEXT_PUBLIC_S3_BASE_URL=https://funkandlove-cloud2.s3.bitiful.net
 ```
 
 ## 🤝 贡献

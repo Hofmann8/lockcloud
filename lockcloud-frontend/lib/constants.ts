@@ -43,7 +43,7 @@ export const RATE_LIMITS = {
 
 // S3 URLs
 export const S3_URLS = {
-  BASE: process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud.s3.bitiful.net',
+  BASE: process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud2.s3.bitiful.net',
   MAIN: process.env.NEXT_PUBLIC_S3_MAIN_URL || 'https://funkandlove-main.s3.bitiful.net',
 };
 

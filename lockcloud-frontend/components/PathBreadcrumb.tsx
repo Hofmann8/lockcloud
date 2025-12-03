@@ -11,8 +11,6 @@ interface PathBreadcrumbProps {
 }
 
 export function PathBreadcrumb({
-  activityType,
-  activityTypeDisplay,
   activityDate,
   filename,
   className = '',
@@ -23,43 +21,31 @@ export function PathBreadcrumb({
   const year = activityDate ? activityDate.split('-')[0] : null;
   const month = activityDate ? activityDate.split('-')[1] : null;
 
-  // Build path segments
+  // Build path segments - new structure: year/month only
   const segments: Array<{
     label: string;
     isActive: boolean;
     onClick?: () => void;
   }> = [];
 
-  // Activity Type segment
-  if (activityTypeDisplay && activityType) {
-    segments.push({
-      label: activityTypeDisplay,
-      isActive: false,
-      onClick: () => {
-        router.push(`/files?activity_type=${activityType}`);
-      },
-    });
-  }
-
   // Year segment
-  if (year && activityType) {
+  if (year) {
     segments.push({
       label: `${year}年`,
       isActive: false,
       onClick: () => {
-        router.push(`/files?activity_type=${activityType}&date_from=${year}-01-01&date_to=${year}-12-31`);
+        router.push(`/files?year=${year}`);
       },
     });
   }
 
   // Month segment
-  if (month && year && activityType) {
-    const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+  if (month && year) {
     segments.push({
       label: `${parseInt(month)}月`,
       isActive: false,
       onClick: () => {
-        router.push(`/files?activity_type=${activityType}&date_from=${year}-${month}-01&date_to=${year}-${month}-${lastDay}`);
+        router.push(`/files?year=${year}&month=${parseInt(month)}`);
       },
     });
   }

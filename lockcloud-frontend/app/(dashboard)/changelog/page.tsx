@@ -6,19 +6,16 @@ export default function ChangelogPage() {
   const updates = [
     {
       date: '2025-11-21',
-      title: 'LockAI 与文件浏览优化',
+      title: '文件浏览优化',
       items: [
-        '新增 LockAI 队列功能，防止高并发冲突',
         '新增文件浏览上一条/下一条功能（来自姜姜的 issue）',
       ],
       type: 'improvement',
     },
     {
       date: '2025-11-19',
-      title: '新增 LockAI 板块',
+      title: '文件编辑功能',
       items: [
-        '新增 LockAI 人工智能对话功能',
-        '支持多种 AI 模型选择',
         '已上传文件支持编辑和移动操作',
       ],
       type: 'feature',

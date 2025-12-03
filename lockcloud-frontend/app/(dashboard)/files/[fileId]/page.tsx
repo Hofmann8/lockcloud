@@ -28,9 +28,14 @@ function FilePreviewPageContent({ params }: PageProps) {
   const fileIdNum = parseInt(fileId, 10);
 
   // Use the custom hook with enhanced error handling and caching
-  const { data: file, isLoading, error } = useFileDetails(
+  const { data: file, isLoading, error, refetch } = useFileDetails(
     !isNaN(fileIdNum) ? fileIdNum : null
   );
+
+  // Handle file update (e.g., when tags are changed)
+  const handleFileUpdate = () => {
+    refetch();
+  };
 
   // Fetch adjacent files
   const { data: adjacentFiles } = useQuery({
@@ -351,7 +356,7 @@ function FilePreviewPageContent({ params }: PageProps) {
       />
       
       {/* Preview Container with responsive layout */}
-      <PreviewContainer file={file}>
+      <PreviewContainer file={file} onFileUpdate={handleFileUpdate}>
         <PreviewArea>
           {renderPreview()}
         </PreviewArea>

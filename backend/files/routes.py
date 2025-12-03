@@ -439,7 +439,7 @@ def list_files():
     """
     List files with optional filters and pagination
     
-    GET /api/files?directory=/rehearsals/2025-03-session/&uploader_id=1&activity_type=regular_training&instructor=alex&date_from=2025-03-01&date_to=2025-03-31&search=training&page=1&per_page=50
+    GET /api/files?directory=/rehearsals/2025-03-session/&uploader_id=1&activity_type=regular_training&instructor=alex&date_from=2025-03-01&date_to=2025-03-31&search=training&media_type=image&tags=dance,practice&year=2025&month=3&page=1&per_page=50
     Headers: Authorization: Bearer <token>
     Query Parameters:
         - directory: Filter by directory path (optional)
@@ -449,6 +449,10 @@ def list_files():
         - date_from: Filter by activity date from (ISO format, optional)
         - date_to: Filter by activity date to (ISO format, optional)
         - search: Search across filename, original_filename, and tags (optional)
+        - media_type: Filter by media type ('all', 'image', 'video') (optional)
+        - tags: Comma-separated list of free tag names (OR logic) (optional)
+        - year: Filter by activity_date year (optional)
+        - month: Filter by activity_date month (requires year) (optional)
         - page: Page number (default: 1)
         - per_page: Items per page (default: 50, max: 100)
     
@@ -466,10 +470,16 @@ def list_files():
         directory = request.args.get('directory', '').strip()
         uploader_id = request.args.get('uploader_id', type=int)
         activity_type = request.args.get('activity_type', '').strip()
+        activity_name = request.args.get('activity_name', '').strip()
+        activity_date_exact = request.args.get('activity_date', '').strip()  # Exact date filter
         instructor = request.args.get('instructor', '').strip()
         date_from = request.args.get('date_from', '').strip()
         date_to = request.args.get('date_to', '').strip()
         search = request.args.get('search', '').strip()
+        media_type = request.args.get('media_type', '').strip().lower()
+        tags_param = request.args.get('tags', '').strip()
+        year = request.args.get('year', type=int)
+        month = request.args.get('month', type=int)
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
         
@@ -502,9 +512,69 @@ def list_files():
         if activity_type:
             query = query.filter(File.activity_type == activity_type)
         
+        # Filter by activity_name
+        if activity_name:
+            query = query.filter(File.activity_name == activity_name)
+        
+        # Filter by exact activity_date
+        if activity_date_exact:
+            try:
+                activity_date_obj = datetime.fromisoformat(activity_date_exact).date()
+                query = query.filter(File.activity_date == activity_date_obj)
+            except ValueError:
+                return jsonify({
+                    'error': {
+                        'code': 'VALIDATION_001',
+                        'message': '活动日期格式无效。请使用 ISO 格式 (YYYY-MM-DD)'
+                    }
+                }), 400
+        
         # Filter by instructor
         if instructor:
             query = query.filter(File.instructor == instructor)
+        
+        # Filter by media_type (Requirements: 2.1, 2.2, 2.3)
+        if media_type and media_type != 'all':
+            if media_type == 'image':
+                # Filter for image content types
+                query = query.filter(
+                    or_(
+                        File.content_type.startswith('image/'),
+                        File.content_type.like('image/%')
+                    )
+                )
+            elif media_type == 'video':
+                # Filter for video content types
+                query = query.filter(
+                    or_(
+                        File.content_type.startswith('video/'),
+                        File.content_type.like('video/%')
+                    )
+                )
+        
+        # Filter by free tags (OR logic) (Requirements: 4.1, 4.2)
+        if tags_param:
+            tag_names = [t.strip() for t in tags_param.split(',') if t.strip()]
+            if tag_names:
+                from files.models import Tag, FileTag
+                # Get file IDs that have any of the specified tags
+                tag_subquery = db.session.query(FileTag.file_id).join(
+                    Tag, FileTag.tag_id == Tag.id
+                ).filter(
+                    Tag.name.in_(tag_names)
+                ).distinct().subquery()
+                
+                query = query.filter(File.id.in_(tag_subquery))
+        
+        # Filter by year (Requirements: 1.2)
+        if year:
+            from sqlalchemy import extract
+            query = query.filter(extract('year', File.activity_date) == year)
+        
+        # Filter by month (requires year) (Requirements: 1.3)
+        if month and year:
+            from sqlalchemy import extract
+            query = query.filter(extract('month', File.activity_date) == month)
         
         # Search filter - searches across filename, original_filename, and tags
         if search:
@@ -573,6 +643,96 @@ def list_files():
             
             files.append(file_dict)
         
+        # Build timeline summary (Requirements: 1.1, 1.4)
+        # Query all files matching the current filters (without pagination) to build timeline
+        from sqlalchemy import func, extract
+        
+        # Build a base query with the same filters for timeline calculation
+        timeline_query = File.query
+        
+        # Apply the same filters as the main query
+        if directory:
+            directory_normalized = directory.strip('/')
+            timeline_query = timeline_query.filter(
+                or_(
+                    File.directory == directory_normalized,
+                    File.directory.startswith(directory_normalized + '/')
+                )
+            )
+        if uploader_id:
+            timeline_query = timeline_query.filter(File.uploader_id == uploader_id)
+        if activity_type:
+            timeline_query = timeline_query.filter(File.activity_type == activity_type)
+        if instructor:
+            timeline_query = timeline_query.filter(File.instructor == instructor)
+        if media_type and media_type != 'all':
+            if media_type == 'image':
+                timeline_query = timeline_query.filter(File.content_type.like('image/%'))
+            elif media_type == 'video':
+                timeline_query = timeline_query.filter(File.content_type.like('video/%'))
+        if tags_param:
+            tag_names = [t.strip() for t in tags_param.split(',') if t.strip()]
+            if tag_names:
+                from files.models import Tag, FileTag
+                tag_subquery = db.session.query(FileTag.file_id).join(
+                    Tag, FileTag.tag_id == Tag.id
+                ).filter(
+                    Tag.name.in_(tag_names)
+                ).distinct().subquery()
+                timeline_query = timeline_query.filter(File.id.in_(tag_subquery))
+        if search:
+            search_pattern = f'%{search}%'
+            timeline_query = timeline_query.filter(
+                or_(
+                    File.filename.ilike(search_pattern),
+                    File.original_filename.ilike(search_pattern),
+                    File.activity_type.ilike(search_pattern),
+                    File.instructor.ilike(search_pattern)
+                )
+            )
+        if date_from:
+            try:
+                date_from_obj = datetime.fromisoformat(date_from).date()
+                timeline_query = timeline_query.filter(File.activity_date >= date_from_obj)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                date_to_obj = datetime.fromisoformat(date_to).date()
+                timeline_query = timeline_query.filter(File.activity_date <= date_to_obj)
+            except ValueError:
+                pass
+        
+        # Get timeline grouping with counts
+        timeline_stats = db.session.query(
+            extract('year', File.activity_date).label('year'),
+            extract('month', File.activity_date).label('month'),
+            func.count(File.id).label('count')
+        ).filter(
+            File.id.in_(timeline_query.with_entities(File.id))
+        ).group_by(
+            extract('year', File.activity_date),
+            extract('month', File.activity_date)
+        ).all()
+        
+        # Build timeline dictionary
+        timeline = {}
+        undated_count = 0
+        
+        for year_val, month_val, count in timeline_stats:
+            if year_val is None:
+                undated_count += count
+            else:
+                year_str = str(int(year_val))
+                if year_str not in timeline:
+                    timeline[year_str] = {}
+                month_str = str(int(month_val)) if month_val else 'undated'
+                timeline[year_str][month_str] = {'count': count}
+        
+        # Add undated files count if any
+        if undated_count > 0:
+            timeline['undated'] = {'count': undated_count}
+        
         current_app.logger.info(
             f'User {current_user_id} listed {len(files)} files (page {page})'
         )
@@ -587,7 +747,8 @@ def list_files():
                 'pages': pagination.pages,
                 'has_next': pagination.has_next,
                 'has_prev': pagination.has_prev
-            }
+            },
+            'timeline': timeline
         }), 200
         
     except Exception as e:
@@ -761,14 +922,14 @@ def delete_file(file_id):
 @jwt_required()
 def get_directories():
     """
-    Get hierarchical directory structure with file counts based on tag presets
-    Structure: {activity_type}/{year}/{month}
+    Get hierarchical directory structure with file counts
+    Structure: {year}/{month}/{date+activity_name+activity_type}
     
     GET /api/files/directories
     Headers: Authorization: Bearer <token>
     
     Returns:
-        200: Directory structure retrieved successfully with display names from tag presets
+        200: Directory structure retrieved successfully
         401: Unauthorized
         500: Query failed
     """
@@ -776,107 +937,126 @@ def get_directories():
         # Get current user ID from JWT (for authentication)
         current_user_id = int(get_jwt_identity())
         
-        # Get tag presets for display name mapping
+        from sqlalchemy import func, extract
         from services.tag_preset_service import tag_preset_service
         
+        # Get activity type display names
         activity_type_presets = {p.value: p.display_name for p in tag_preset_service.get_active_presets('activity_type')}
         
-        # Query files grouped by activity_type, year, and month
-        from sqlalchemy import func, extract
-        
-        # Get file counts grouped by activity_type, year, and month
+        # Get file counts grouped by year, month, date, activity_name, activity_type
         file_stats = db.session.query(
-            File.activity_type,
             extract('year', File.activity_date).label('year'),
             extract('month', File.activity_date).label('month'),
+            File.activity_date,
+            File.activity_name,
+            File.activity_type,
             func.count(File.id).label('file_count')
         ).filter(
-            File.activity_type.isnot(None),
             File.activity_date.isnot(None)
         ).group_by(
-            File.activity_type,
             extract('year', File.activity_date),
-            extract('month', File.activity_date)
+            extract('month', File.activity_date),
+            File.activity_date,
+            File.activity_name,
+            File.activity_type
         ).all()
         
-        # Build hierarchical structure
-        directory_tree = {}
+        # Build hierarchical structure: year -> month -> activity
+        year_tree = {}
         
-        for activity_type, year, month, count in file_stats:
-            # Initialize activity type if not exists
-            if activity_type not in directory_tree:
-                directory_tree[activity_type] = {
-                    'value': activity_type,
-                    'display_name': activity_type_presets.get(activity_type, activity_type),
-                    'count': 0,
-                    'years': {}
-                }
-            
-            directory_tree[activity_type]['count'] += count
-            
-            # Initialize year if not exists
+        for year, month, activity_date, activity_name, activity_type, count in file_stats:
             year_str = str(int(year)) if year else 'unknown'
-            if year_str not in directory_tree[activity_type]['years']:
-                directory_tree[activity_type]['years'][year_str] = {
-                    'value': year_str,
-                    'count': 0,
-                    'months': {}
-                }
-            
-            directory_tree[activity_type]['years'][year_str]['count'] += count
-            
-            # Add month data
             month_str = f"{int(month):02d}" if month else 'unknown'
-            month_name = f"{int(month)}月" if month else 'unknown'
-            if month_str not in directory_tree[activity_type]['years'][year_str]['months']:
-                directory_tree[activity_type]['years'][year_str]['months'][month_str] = 0
             
-            directory_tree[activity_type]['years'][year_str]['months'][month_str] += count
+            # Initialize year
+            if year_str not in year_tree:
+                year_tree[year_str] = {'count': 0, 'months': {}}
+            year_tree[year_str]['count'] += count
+            
+            # Initialize month
+            if month_str not in year_tree[year_str]['months']:
+                year_tree[year_str]['months'][month_str] = {'count': 0, 'activities': {}}
+            year_tree[year_str]['months'][month_str]['count'] += count
+            
+            # Build activity key: date + activity_name + activity_type
+            date_str = activity_date.strftime('%m-%d') if activity_date else ''
+            
+            # Get activity type display name
+            type_display = activity_type_presets.get(activity_type, activity_type) if activity_type else ''
+            
+            # Build display name for the activity folder
+            if activity_name:
+                activity_key = f"{date_str}_{activity_name}_{activity_type or 'unknown'}"
+                activity_display = f"{date_str} {activity_name}" + (f" ({type_display})" if type_display else "")
+            else:
+                # Legacy files without activity_name go to "未分类"
+                activity_key = f"{date_str}_未分类"
+                activity_display = f"{date_str} 未分类"
+            
+            # Initialize activity
+            if activity_key not in year_tree[year_str]['months'][month_str]['activities']:
+                year_tree[year_str]['months'][month_str]['activities'][activity_key] = {
+                    'display': activity_display,
+                    'date': activity_date.isoformat() if activity_date else '',
+                    'activity_name': activity_name or '',
+                    'activity_type': activity_type or '',
+                    'count': 0
+                }
+            year_tree[year_str]['months'][month_str]['activities'][activity_key]['count'] += count
         
         # Convert to list format for frontend
         directories = []
         
-        for activity_type, activity_data in directory_tree.items():
-            activity_obj = {
-                'value': activity_data['value'],
-                'name': activity_data['display_name'],
-                'path': f'{activity_type}',
-                'file_count': activity_data['count'],
+        for year, year_data in year_tree.items():
+            year_obj = {
+                'value': year,
+                'name': f'{year}年',
+                'path': year,
+                'file_count': year_data['count'],
                 'subdirectories': []
             }
             
-            for year, year_data in activity_data['years'].items():
-                year_obj = {
-                    'value': year,
-                    'name': f'{year}年',
-                    'path': f'{activity_type}/{year}',
-                    'file_count': year_data['count'],
+            for month_str, month_data in year_data['months'].items():
+                month_int = int(month_str)
+                month_obj = {
+                    'name': f'{month_int}月',
+                    'path': f'{year}/{month_str}',
+                    'file_count': month_data['count'],
                     'subdirectories': []
                 }
                 
-                for month_str, month_count in year_data['months'].items():
-                    month_int = int(month_str)
-                    year_obj['subdirectories'].append({
-                        'name': f'{month_int}月',
-                        'path': f'{activity_type}/{year}/{month_str}',
-                        'file_count': month_count
+                # Add activity subdirectories
+                for activity_key, activity_data in month_data['activities'].items():
+                    month_obj['subdirectories'].append({
+                        'name': activity_data['display'],
+                        'path': f"{year}/{month_str}/{activity_key}",
+                        'file_count': activity_data['count'],
+                        'activity_date': activity_data['date'],
+                        'activity_name': activity_data['activity_name'],
+                        'activity_type': activity_data['activity_type']
                     })
                 
-                # Sort months in descending order (newest first)
-                year_obj['subdirectories'].sort(key=lambda x: int(x['name'].replace('月', '')), reverse=True)
+                # Sort activities by date (newest first)
+                month_obj['subdirectories'].sort(
+                    key=lambda x: x.get('activity_date', ''),
+                    reverse=True
+                )
                 
-                activity_obj['subdirectories'].append(year_obj)
+                year_obj['subdirectories'].append(month_obj)
             
-            # Sort years in descending order (newest first)
-            activity_obj['subdirectories'].sort(key=lambda x: x['value'], reverse=True)
+            # Sort months in descending order (newest first)
+            year_obj['subdirectories'].sort(
+                key=lambda x: int(x['name'].replace('月', '')), 
+                reverse=True
+            )
             
-            directories.append(activity_obj)
+            directories.append(year_obj)
         
-        # Sort activity types by display name
-        directories.sort(key=lambda x: x['name'])
+        # Sort years in descending order (newest first)
+        directories.sort(key=lambda x: x['value'], reverse=True)
         
         current_app.logger.info(
-            f'User {current_user_id} retrieved directory structure with {len(directories)} activity types'
+            f'User {current_user_id} retrieved directory structure with {len(directories)} years'
         )
         
         return jsonify({
@@ -1396,5 +1576,718 @@ def get_adjacent_files(file_id):
             'error': {
                 'code': 'INTERNAL_ERROR',
                 'message': '获取相邻文件失败，请稍后重试'
+            }
+        }), 500
+
+
+
+# ============================================================================
+# File-Tag Association Endpoints
+# ============================================================================
+
+@files_bp.route('/<int:file_id>/tags', methods=['GET'])
+@jwt_required()
+def get_file_tags(file_id):
+    """
+    Get all tags associated with a file
+    
+    GET /api/files/{file_id}/tags
+    Headers: Authorization: Bearer <token>
+    
+    Returns:
+        200: Tags retrieved successfully
+        401: Unauthorized
+        404: File not found
+        500: Query failed
+    
+    Requirements: 3.4
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        from services.tag_service import tag_service
+        
+        try:
+            tags = tag_service.get_file_tags(file_id)
+        except LookupError:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_010',
+                    'message': '文件不存在'
+                }
+            }), 404
+        
+        current_app.logger.info(
+            f'User {current_user_id} retrieved {len(tags)} tags for file {file_id}'
+        )
+        
+        return jsonify({
+            'success': True,
+            'tags': [{'id': t.id, 'name': t.name} for t in tags]
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting tags for file {file_id}: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '获取文件标签失败，请稍后重试'
+            }
+        }), 500
+
+
+@files_bp.route('/<int:file_id>/tags', methods=['POST'])
+@jwt_required()
+def add_file_tag(file_id):
+    """
+    Add a tag to a file
+    
+    POST /api/files/{file_id}/tags
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "tag_name": "favorite"
+    }
+    
+    Returns:
+        201: Tag added successfully
+        400: Invalid input or tag already exists on file
+        401: Unauthorized
+        404: File not found
+        500: Operation failed
+    
+    Requirements: 3.1
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        data = request.get_json()
+        
+        if not data or 'tag_name' not in data:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '缺少必填字段: tag_name'
+                }
+            }), 400
+        
+        tag_name = data['tag_name']
+        
+        if not tag_name or not tag_name.strip():
+            return jsonify({
+                'error': {
+                    'code': 'TAG_003',
+                    'message': '标签名称不能为空'
+                }
+            }), 400
+        
+        # Validate tag name length
+        if len(tag_name.strip()) > 100:
+            return jsonify({
+                'error': {
+                    'code': 'TAG_003',
+                    'message': '标签名称过长（最多100字符）'
+                }
+            }), 400
+        
+        from services.tag_service import tag_service
+        
+        try:
+            file_tag = tag_service.add_tag_to_file(file_id, tag_name, current_user_id)
+        except LookupError:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_010',
+                    'message': '文件不存在'
+                }
+            }), 404
+        except ValueError as e:
+            return jsonify({
+                'error': {
+                    'code': 'TAG_003',
+                    'message': str(e)
+                }
+            }), 400
+        
+        # Get the tag details
+        from files.models import Tag
+        tag = Tag.query.get(file_tag.tag_id)
+        
+        current_app.logger.info(
+            f'User {current_user_id} added tag "{tag.name}" to file {file_id}'
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': '标签添加成功',
+            'tag': {'id': tag.id, 'name': tag.name}
+        }), 201
+        
+    except Exception as e:
+        current_app.logger.error(f'Error adding tag to file {file_id}: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '添加标签失败，请稍后重试'
+            }
+        }), 500
+
+
+@files_bp.route('/<int:file_id>/tags/<int:tag_id>', methods=['DELETE'])
+@jwt_required()
+def remove_file_tag(file_id, tag_id):
+    """
+    Remove a tag from a file
+    
+    DELETE /api/files/{file_id}/tags/{tag_id}
+    Headers: Authorization: Bearer <token>
+    
+    Returns:
+        200: Tag removed successfully
+        401: Unauthorized
+        404: File or tag association not found
+        500: Operation failed
+    
+    Requirements: 3.3
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        # Verify file exists
+        file = File.query.get(file_id)
+        if not file:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_010',
+                    'message': '文件不存在'
+                }
+            }), 404
+        
+        from services.tag_service import tag_service
+        
+        removed = tag_service.remove_tag_from_file(file_id, tag_id)
+        
+        if not removed:
+            return jsonify({
+                'error': {
+                    'code': 'TAG_001',
+                    'message': '该文件没有此标签'
+                }
+            }), 404
+        
+        current_app.logger.info(
+            f'User {current_user_id} removed tag {tag_id} from file {file_id}'
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': '标签移除成功'
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({
+            'error': {
+                'code': 'VALIDATION_001',
+                'message': str(e)
+            }
+        }), 400
+    except Exception as e:
+        current_app.logger.error(f'Error removing tag {tag_id} from file {file_id}: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '移除标签失败，请稍后重试'
+            }
+        }), 500
+
+
+# ============================================================================
+# Batch Operations Endpoints
+# ============================================================================
+
+@files_bp.route('/batch/delete', methods=['POST'])
+@jwt_required()
+def batch_delete_files():
+    """
+    Batch delete multiple files
+    
+    POST /api/files/batch/delete
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "file_ids": [1, 2, 3, ...]
+    }
+    
+    Returns:
+        200: All files deleted successfully
+        207: Partial success (some files failed)
+        400: Invalid input
+        401: Unauthorized
+        500: Operation failed
+    
+    Requirements: 5.4
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        data = request.get_json()
+        
+        if not data or 'file_ids' not in data:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '缺少必填字段: file_ids'
+                }
+            }), 400
+        
+        file_ids = data['file_ids']
+        
+        if not file_ids or not isinstance(file_ids, list):
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '文件ID列表不能为空'
+                }
+            }), 400
+        
+        # Validate batch size limit (max 100)
+        if len(file_ids) > 100:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_002',
+                    'message': '批量操作限制最多100个文件'
+                }
+            }), 400
+        
+        succeeded = []
+        failed = []
+        
+        for file_id in file_ids:
+            try:
+                # Find file by ID
+                file = File.query.get(file_id)
+                
+                if not file:
+                    failed.append({
+                        'file_id': file_id,
+                        'error': '文件不存在'
+                    })
+                    continue
+                
+                # Verify user is the uploader
+                if file.uploader_id != current_user_id:
+                    failed.append({
+                        'file_id': file_id,
+                        'error': '无权删除此文件'
+                    })
+                    continue
+                
+                # Delete file from S3
+                try:
+                    s3_service.delete_file(file.s3_key)
+                except Exception as e:
+                    current_app.logger.error(f'Failed to delete file {file_id} from S3: {str(e)}')
+                    failed.append({
+                        'file_id': file_id,
+                        'error': 'S3删除失败'
+                    })
+                    continue
+                
+                # Create log entry before deleting file record
+                log = FileLog.create_log(
+                    user_id=current_user_id,
+                    operation=OperationType.DELETE,
+                    file_id=file.id,
+                    file_path=file.s3_key,
+                    ip_address=request.remote_addr,
+                    user_agent=request.headers.get('User-Agent')
+                )
+                db.session.add(log)
+                
+                # Delete file record from database
+                db.session.delete(file)
+                succeeded.append(file_id)
+                
+            except Exception as e:
+                current_app.logger.error(f'Error deleting file {file_id}: {str(e)}')
+                failed.append({
+                    'file_id': file_id,
+                    'error': '删除失败'
+                })
+        
+        # Commit all successful deletions
+        db.session.commit()
+        
+        current_app.logger.info(
+            f'User {current_user_id} batch deleted {len(succeeded)} files, {len(failed)} failed'
+        )
+        
+        # Return appropriate status code
+        if len(failed) == 0:
+            return jsonify({
+                'success': True,
+                'message': f'成功删除 {len(succeeded)} 个文件',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 200
+        elif len(succeeded) == 0:
+            return jsonify({
+                'success': False,
+                'code': 'TAG_004',
+                'message': '所有文件删除失败',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 400
+        else:
+            return jsonify({
+                'success': False,
+                'code': 'TAG_004',
+                'message': f'部分操作失败: 成功 {len(succeeded)}, 失败 {len(failed)}',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 207
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error in batch delete: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '批量删除失败，请稍后重试'
+            }
+        }), 500
+
+
+@files_bp.route('/batch/tags', methods=['POST'])
+@jwt_required()
+def batch_add_tag():
+    """
+    Batch add a tag to multiple files
+    
+    POST /api/files/batch/tags
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "file_ids": [1, 2, 3, ...],
+        "tag_name": "favorite"
+    }
+    
+    Returns:
+        200: Tag added to all files successfully
+        207: Partial success (some files failed)
+        400: Invalid input
+        401: Unauthorized
+        500: Operation failed
+    
+    Requirements: 5.5
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '请求数据不能为空'
+                }
+            }), 400
+        
+        file_ids = data.get('file_ids')
+        tag_name = data.get('tag_name')
+        
+        if not file_ids or not isinstance(file_ids, list):
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '文件ID列表不能为空'
+                }
+            }), 400
+        
+        if not tag_name or not tag_name.strip():
+            return jsonify({
+                'error': {
+                    'code': 'TAG_003',
+                    'message': '标签名称不能为空'
+                }
+            }), 400
+        
+        # Validate tag name length
+        if len(tag_name.strip()) > 100:
+            return jsonify({
+                'error': {
+                    'code': 'TAG_003',
+                    'message': '标签名称过长（最多100字符）'
+                }
+            }), 400
+        
+        # Validate batch size limit (max 100)
+        if len(file_ids) > 100:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_002',
+                    'message': '批量操作限制最多100个文件'
+                }
+            }), 400
+        
+        from services.tag_service import tag_service
+        
+        # Get or create the tag first
+        try:
+            tag = tag_service.get_or_create_tag(tag_name, current_user_id)
+        except ValueError as e:
+            return jsonify({
+                'error': {
+                    'code': 'TAG_003',
+                    'message': str(e)
+                }
+            }), 400
+        
+        succeeded = []
+        failed = []
+        
+        for file_id in file_ids:
+            try:
+                # Verify file exists
+                file = File.query.get(file_id)
+                if not file:
+                    failed.append({
+                        'file_id': file_id,
+                        'error': '文件不存在'
+                    })
+                    continue
+                
+                # Check if association already exists
+                from files.models import FileTag
+                existing = FileTag.query.filter_by(
+                    file_id=file_id,
+                    tag_id=tag.id
+                ).first()
+                
+                if existing:
+                    # Already has the tag, count as success
+                    succeeded.append(file_id)
+                    continue
+                
+                # Create new association
+                file_tag = FileTag(file_id=file_id, tag_id=tag.id)
+                db.session.add(file_tag)
+                succeeded.append(file_id)
+                
+            except Exception as e:
+                current_app.logger.error(f'Error adding tag to file {file_id}: {str(e)}')
+                failed.append({
+                    'file_id': file_id,
+                    'error': '添加标签失败'
+                })
+        
+        db.session.commit()
+        
+        current_app.logger.info(
+            f'User {current_user_id} batch added tag "{tag.name}" to {len(succeeded)} files, {len(failed)} failed'
+        )
+        
+        # Return appropriate status code
+        if len(failed) == 0:
+            return jsonify({
+                'success': True,
+                'message': f'成功为 {len(succeeded)} 个文件添加标签',
+                'tag': {'id': tag.id, 'name': tag.name},
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 200
+        elif len(succeeded) == 0:
+            return jsonify({
+                'success': False,
+                'code': 'TAG_004',
+                'message': '所有文件添加标签失败',
+                'tag': {'id': tag.id, 'name': tag.name},
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 400
+        else:
+            return jsonify({
+                'success': False,
+                'code': 'TAG_004',
+                'message': f'部分操作失败: 成功 {len(succeeded)}, 失败 {len(failed)}',
+                'tag': {'id': tag.id, 'name': tag.name},
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 207
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error in batch add tag: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '批量添加标签失败，请稍后重试'
+            }
+        }), 500
+
+
+@files_bp.route('/batch/tags', methods=['DELETE'])
+@jwt_required()
+def batch_remove_tag():
+    """
+    Batch remove a tag from multiple files
+    
+    DELETE /api/files/batch/tags
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "file_ids": [1, 2, 3, ...],
+        "tag_id": 5
+    }
+    
+    Returns:
+        200: Tag removed from all files successfully
+        207: Partial success (some files failed)
+        400: Invalid input
+        401: Unauthorized
+        404: Tag not found
+        500: Operation failed
+    
+    Requirements: 5.6
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '请求数据不能为空'
+                }
+            }), 400
+        
+        file_ids = data.get('file_ids')
+        tag_id = data.get('tag_id')
+        
+        if not file_ids or not isinstance(file_ids, list):
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_001',
+                    'message': '文件ID列表不能为空'
+                }
+            }), 400
+        
+        if not tag_id:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '缺少必填字段: tag_id'
+                }
+            }), 400
+        
+        # Validate batch size limit (max 100)
+        if len(file_ids) > 100:
+            return jsonify({
+                'error': {
+                    'code': 'BATCH_002',
+                    'message': '批量操作限制最多100个文件'
+                }
+            }), 400
+        
+        # Verify tag exists
+        from files.models import Tag, FileTag
+        tag = Tag.query.get(tag_id)
+        if not tag:
+            return jsonify({
+                'error': {
+                    'code': 'TAG_001',
+                    'message': '标签不存在'
+                }
+            }), 404
+        
+        succeeded = []
+        failed = []
+        
+        for file_id in file_ids:
+            try:
+                # Verify file exists
+                file = File.query.get(file_id)
+                if not file:
+                    failed.append({
+                        'file_id': file_id,
+                        'error': '文件不存在'
+                    })
+                    continue
+                
+                # Find and delete the association
+                file_tag = FileTag.query.filter_by(
+                    file_id=file_id,
+                    tag_id=tag_id
+                ).first()
+                
+                if file_tag:
+                    db.session.delete(file_tag)
+                    succeeded.append(file_id)
+                else:
+                    # File doesn't have this tag, count as success (idempotent)
+                    succeeded.append(file_id)
+                
+            except Exception as e:
+                current_app.logger.error(f'Error removing tag from file {file_id}: {str(e)}')
+                failed.append({
+                    'file_id': file_id,
+                    'error': '移除标签失败'
+                })
+        
+        db.session.commit()
+        
+        current_app.logger.info(
+            f'User {current_user_id} batch removed tag {tag_id} from {len(succeeded)} files, {len(failed)} failed'
+        )
+        
+        # Return appropriate status code
+        if len(failed) == 0:
+            return jsonify({
+                'success': True,
+                'message': f'成功从 {len(succeeded)} 个文件移除标签',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 200
+        elif len(succeeded) == 0:
+            return jsonify({
+                'success': False,
+                'code': 'TAG_004',
+                'message': '所有文件移除标签失败',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 400
+        else:
+            return jsonify({
+                'success': False,
+                'code': 'TAG_004',
+                'message': f'部分操作失败: 成功 {len(succeeded)}, 失败 {len(failed)}',
+                'results': {
+                    'succeeded': succeeded,
+                    'failed': failed
+                }
+            }), 207
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error in batch remove tag: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '批量移除标签失败，请稍后重试'
             }
         }), 500

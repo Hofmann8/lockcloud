@@ -1,12 +1,6 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/lib/providers";
-
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "LockCloud - Funk & Love 云存储",
@@ -24,7 +18,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${inter.variable} antialiased`}>
+      <head>
+        {/* 使用字节跳动CDN镜像加载Inter字体 */}
+        <link
+          rel="preconnect"
+          href="https://lf9-cdn-tos.bytecdntp.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          href="https://lf9-cdn-tos.bytecdntp.com/cdn/expire-1-M/inter-ui/3.19.3/inter.min.css"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="antialiased font-sans">
         <Providers>
           {children}
         </Providers>

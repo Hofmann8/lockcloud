@@ -10,6 +10,16 @@ export interface User {
   is_admin: boolean;
 }
 
+// Free Tag types
+export interface FreeTag {
+  id: number;
+  name: string;
+}
+
+export interface TagWithCount extends FreeTag {
+  count: number;
+}
+
 // File types
 export interface File {
   id: number;
@@ -22,6 +32,7 @@ export interface File {
   activity_date?: string;
   activity_type?: string;
   activity_type_display?: string;
+  activity_name?: string;
   instructor?: string;
   instructor_display?: string;
   is_legacy: boolean;
@@ -29,6 +40,7 @@ export interface File {
   uploaded_at: string;
   public_url: string;
   uploader?: User;
+  free_tags?: FreeTag[];
 }
 
 // Auth types (SSO-based)
@@ -96,6 +108,8 @@ export interface FileLog {
 export interface FileFilters {
   directory?: string;
   activity_type?: string;
+  activity_name?: string;
+  activity_date?: string;  // Specific date filter
   instructor?: string;
   date_from?: string;
   date_to?: string;
@@ -103,6 +117,10 @@ export interface FileFilters {
   search?: string;
   page?: number;
   per_page?: number;
+  media_type?: 'all' | 'image' | 'video';
+  tags?: string[];
+  year?: number;
+  month?: number;
 }
 
 // Directory types
@@ -112,6 +130,10 @@ export interface DirectoryNode {
   path: string;
   subdirectories?: DirectoryNode[];  // Changed from children to match API
   file_count?: number;
+  // Activity-level fields (for third level)
+  activity_date?: string;
+  activity_name?: string;
+  activity_type?: string;
 }
 
 // Tag Preset types
@@ -139,4 +161,59 @@ export interface UpdateFileTagsRequest {
   activity_date: string;
   activity_type: string;
   instructor: string;
+}
+
+// Timeline types
+export interface TimelineMonth {
+  count: number;
+}
+
+export interface TimelineYear {
+  [month: string]: TimelineMonth;
+}
+
+export interface Timeline {
+  [year: string]: TimelineYear;
+}
+
+// Batch operation types
+export interface BatchDeleteRequest {
+  file_ids: number[];
+}
+
+export interface BatchTagRequest {
+  file_ids: number[];
+  tag_name: string;
+}
+
+export interface BatchRemoveTagRequest {
+  file_ids: number[];
+  tag_id: number;
+}
+
+export interface BatchOperationResult {
+  success: boolean;
+  code?: string;
+  message?: string;
+  results?: {
+    succeeded: number[];
+    failed: Array<{
+      file_id: number;
+      error: string;
+    }>;
+  };
+}
+
+// File list response with timeline
+export interface FileListResponse {
+  files: File[];
+  pagination: {
+    page: number;
+    per_page: number;
+    total: number;
+    pages: number;
+    has_prev: boolean;
+    has_next: boolean;
+  };
+  timeline?: Timeline;
 }

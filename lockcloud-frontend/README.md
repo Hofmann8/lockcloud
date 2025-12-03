@@ -70,7 +70,7 @@ cp .env.example .env.local
 NEXT_PUBLIC_API_URL=http://localhost:5000
 
 # S3 配置
-NEXT_PUBLIC_S3_BASE_URL=https://funkandlove-cloud.s3.bitiful.net
+NEXT_PUBLIC_S3_BASE_URL=https://funkandlove-cloud2.s3.bitiful.net
 NEXT_PUBLIC_S3_MAIN_URL=https://funkandlove-main.s3.bitiful.net
 ```
 

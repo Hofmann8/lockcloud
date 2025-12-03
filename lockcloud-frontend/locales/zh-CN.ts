@@ -150,31 +150,8 @@ export const zhCN = {
     teamName: "Funk & Love",
     files: "文件",
     upload: "上传",
-    ai: "LockAI",
     changelog: "更新日志",
     admin: "管理",
-  },
-
-  // AI
-  ai: {
-    title: "LockAI",
-    newConversation: "新对话",
-    selectModel: "选择模型",
-    usageStats: "使用统计",
-    conversationCount: "对话数",
-    conversationHistory: "历史对话",
-    startNewConversation: "开始新的对话",
-    inputPlaceholder: "输入消息...",
-    send: "发送",
-    sendMessageFailed: "发送消息失败",
-    loadConversationFailed: "加载对话失败",
-    deleteConversationFailed: "删除对话失败",
-    conversationNotFound: "对话不存在",
-    messageEmpty: "消息内容不能为空",
-    aiServiceError: "AI 服务错误",
-    databaseBusy: "数据库繁忙，请稍后重试",
-    rateLimitExceeded: "请求速率限制，请稍后重试或切换节点",
-    serviceUnavailable: "服务暂时不可用，请稍后重试或切换节点",
   },
 
   // Errors

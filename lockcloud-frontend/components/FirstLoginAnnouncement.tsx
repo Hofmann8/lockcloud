@@ -73,38 +73,7 @@ export function FirstLoginAnnouncement() {
             <div className="bg-white rounded-lg p-3 border border-blue-100">
               <p className="font-medium text-blue-600 mb-1.5">🔧 优化改进</p>
               <ul className="list-disc list-inside space-y-0.5 text-gray-600 ml-2 text-xs">
-                <li>新增 <span className="font-semibold text-blue-600">LockAI 队列功能</span>，防止高并发冲突</li>
                 <li>新增文件浏览上一条/下一条功能（来自姜姜的 issue）</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        {/* LockAI 使用须知 - 重点提示 */}
-        <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-300 rounded-lg p-4 space-y-3">
-          <h3 className="font-bold text-red-700 flex items-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-            LockAI 板块使用须知
-          </h3>
-          
-          <div className="space-y-2 text-xs text-gray-700 leading-relaxed">
-            <div className="bg-white/80 rounded p-2.5 border border-red-200">
-              <p className="font-semibold text-red-600 mb-1.5">⚠️ 法律合规声明</p>
-              <ul className="space-y-1 text-gray-700">
-                <li>• 使用 LockAI 板块时<span className="font-semibold text-red-600">必须符合当地相关法律法规</span></li>
-                <li>• 平台的人工智能服务<span className="font-semibold">仅用于合法逆向测试和 AI 学习使用</span></li>
-                <li>• <span className="font-semibold text-red-600">请勿上传任何涉密、敏感或违法内容</span>至 LockAI 板块</li>
-              </ul>
-            </div>
-
-            <div className="bg-white/80 rounded p-2.5 border border-orange-200">
-              <p className="font-semibold text-orange-600 mb-1.5">💡 重要提示</p>
-              <ul className="space-y-1 text-gray-700">
-                <li>• 扣费为<span className="font-semibold">模拟扣费</span>，不会产生实际消费</li>
-                <li>• 本平台<span className="font-semibold">没有任何经营性质</span>，仅供学习交流</li>
-                <li>• 由于 AI 约束的特殊性，<span className="font-semibold text-orange-600">使用和测试过程的风险由用户自行承担</span></li>
               </ul>
             </div>
           </div>

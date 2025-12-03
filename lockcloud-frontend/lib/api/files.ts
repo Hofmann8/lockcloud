@@ -7,6 +7,11 @@ import {
   FileFilters,
   DirectoryNode,
   UpdateFileTagsRequest,
+  FileListResponse,
+  BatchDeleteRequest,
+  BatchTagRequest,
+  BatchRemoveTagRequest,
+  BatchOperationResult,
 } from '@/types';
 
 /**
@@ -29,21 +34,17 @@ export const confirmUpload = async (data: FileConfirmRequest): Promise<File> => 
 
 /**
  * List files with optional filters
+ * Supports media_type, tags, year, month filters in addition to existing filters
  */
 export const listFiles = async (
   filters?: FileFilters
-): Promise<{
-  files: File[];
-  pagination: {
-    page: number;
-    per_page: number;
-    total: number;
-    pages: number;
-    has_prev: boolean;
-    has_next: boolean;
-  };
-}> => {
-  const response = await apiClient.get('/api/files', { params: filters });
+): Promise<FileListResponse> => {
+  // Convert tags array to comma-separated string for API
+  const params: Record<string, unknown> = { ...filters };
+  if (filters?.tags && filters.tags.length > 0) {
+    params.tags = filters.tags.join(',');
+  }
+  const response = await apiClient.get('/api/files', { params });
   return response.data;
 };
 
@@ -148,5 +149,45 @@ export const getAdjacentFiles = async (
   next: File | null;
 }> => {
   const response = await apiClient.get(`/api/files/${fileId}/adjacent`);
+  return response.data;
+};
+
+/**
+ * Batch delete multiple files
+ * @param fileIds Array of file IDs to delete (max 100)
+ */
+export const batchDeleteFiles = async (
+  fileIds: number[]
+): Promise<BatchOperationResult> => {
+  const data: BatchDeleteRequest = { file_ids: fileIds };
+  const response = await apiClient.post('/api/files/batch/delete', data);
+  return response.data;
+};
+
+/**
+ * Batch add a tag to multiple files
+ * @param fileIds Array of file IDs
+ * @param tagName Tag name to add
+ */
+export const batchAddTag = async (
+  fileIds: number[],
+  tagName: string
+): Promise<BatchOperationResult> => {
+  const data: BatchTagRequest = { file_ids: fileIds, tag_name: tagName };
+  const response = await apiClient.post('/api/files/batch/tags', data);
+  return response.data;
+};
+
+/**
+ * Batch remove a tag from multiple files
+ * @param fileIds Array of file IDs
+ * @param tagId Tag ID to remove
+ */
+export const batchRemoveTag = async (
+  fileIds: number[],
+  tagId: number
+): Promise<BatchOperationResult> => {
+  const data: BatchRemoveTagRequest = { file_ids: fileIds, tag_id: tagId };
+  const response = await apiClient.delete('/api/files/batch/tags', { data });
   return response.data;
 };
