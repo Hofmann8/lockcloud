@@ -13,7 +13,8 @@ interface FreeTagFilterProps {
 
 /**
  * FreeTagFilter component - Multi-select tag chips with search autocomplete
- * Requirements: 4.1, 4.2, 6.1
+ * Requirements: 4.1, 4.2, 6.1, 8.2
+ * Mobile: Optimized touch targets, full-width input, larger dropdown items
  */
 export function FreeTagFilter({ selectedTags, onChange, disabled = false }: FreeTagFilterProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,23 +100,23 @@ export function FreeTagFilter({ selectedTags, onChange, disabled = false }: Free
         自由标签
       </label>
 
-      {/* Selected Tags */}
+      {/* Selected Tags - Mobile: larger touch targets */}
       {selectedTags.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2">
           {selectedTags.map((tagName) => (
             <span
               key={tagName}
-              className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-blue/10 text-accent-blue rounded-full text-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue/10 text-accent-blue rounded-full text-sm min-h-[36px]"
             >
               {tagName}
               <button
                 type="button"
                 onClick={() => handleRemoveTag(tagName)}
                 disabled={disabled}
-                className="hover:text-semantic-error transition-colors disabled:opacity-50"
+                className="hover:text-semantic-error active:text-semantic-error/80 transition-colors disabled:opacity-50 p-1 -mr-1 rounded-full hover:bg-accent-blue/10 min-w-[28px] min-h-[28px] flex items-center justify-center"
                 aria-label={`移除标签 ${tagName}`}
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -124,9 +125,9 @@ export function FreeTagFilter({ selectedTags, onChange, disabled = false }: Free
         </div>
       )}
 
-      {/* Search Input with Add Button */}
-      <div className="relative">
-        <div className="flex gap-2">
+      {/* Search Input with Add Button - Mobile optimized */}
+      <div className="relative w-full">
+        <div className="flex flex-col sm:flex-row gap-2 w-full">
           <input
             ref={inputRef}
             type="text"
@@ -139,7 +140,8 @@ export function FreeTagFilter({ selectedTags, onChange, disabled = false }: Free
             onKeyDown={handleKeyDown}
             disabled={disabled}
             placeholder="搜索或添加标签..."
-            className="input-functional flex-1 px-4 py-2 text-base text-primary-black placeholder:text-accent-gray disabled:opacity-50 disabled:cursor-not-allowed"
+            className="input-functional flex-1 px-4 py-3 sm:py-2 text-base text-primary-black placeholder:text-accent-gray disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] w-full"
+            style={{ fontSize: '16px' }} // Prevent iOS zoom
           />
           <button
             type="button"
@@ -156,21 +158,21 @@ export function FreeTagFilter({ selectedTags, onChange, disabled = false }: Free
               }
             }}
             disabled={disabled || !searchQuery.trim()}
-            className="px-4 py-2 bg-accent-blue text-primary-white rounded-lg hover:bg-accent-blue/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 text-sm font-medium"
+            className="px-4 py-3 sm:py-2.5 bg-accent-blue text-primary-white rounded-lg hover:bg-accent-blue/90 active:bg-accent-blue/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 text-sm font-medium min-h-[44px] min-w-[44px] w-full sm:w-auto"
             aria-label="添加标签"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            添加
+            <span>添加</span>
           </button>
         </div>
 
-        {/* Dropdown */}
+        {/* Dropdown - Mobile optimized with larger touch targets */}
         {isDropdownOpen && availableTags.length > 0 && (
           <div
             ref={dropdownRef}
-            className="absolute z-50 w-full mt-1 bg-primary-white border border-accent-gray/30 rounded-lg shadow-lg max-h-48 overflow-y-auto"
+            className="absolute z-50 w-full mt-1 bg-primary-white border border-accent-gray/30 rounded-lg shadow-lg max-h-60 sm:max-h-48 overflow-y-auto"
           >
             {availableTags.map((tag) => (
               <TagOption
@@ -187,7 +189,7 @@ export function FreeTagFilter({ selectedTags, onChange, disabled = false }: Free
         {isDropdownOpen && searchQuery && availableTags.length === 0 && (
           <div
             ref={dropdownRef}
-            className="absolute z-50 w-full mt-1 bg-primary-white border border-accent-gray/30 rounded-lg shadow-lg p-3 text-sm text-accent-gray"
+            className="absolute z-50 w-full mt-1 bg-primary-white border border-accent-gray/30 rounded-lg shadow-lg p-4 sm:p-3 text-sm text-accent-gray"
           >
             未找到匹配的标签
           </div>
@@ -236,10 +238,10 @@ function TagOption({ tag, searchQuery, onSelect }: TagOptionProps) {
     <button
       type="button"
       onClick={() => onSelect(tag.name)}
-      className="w-full px-4 py-2 text-left hover:bg-accent-blue/5 transition-colors flex items-center justify-between"
+      className="w-full px-4 py-3.5 sm:py-3 text-left hover:bg-accent-blue/5 active:bg-accent-blue/10 transition-colors flex items-center justify-between min-h-[48px] sm:min-h-[44px] border-b border-accent-gray/10 last:border-b-0"
     >
-      <span className="text-sm text-primary-black">{highlightMatch(tag.name, searchQuery)}</span>
-      <span className="text-xs text-accent-gray">{tag.count} 个文件</span>
+      <span className="text-base text-primary-black">{highlightMatch(tag.name, searchQuery)}</span>
+      <span className="text-sm text-accent-gray whitespace-nowrap ml-2">{tag.count} 个文件</span>
     </button>
   );
 }

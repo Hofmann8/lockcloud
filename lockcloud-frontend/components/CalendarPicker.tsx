@@ -179,21 +179,23 @@ export function CalendarPicker({
             <button
               type="button"
               onClick={handlePrevMonth}
-              className="p-1 hover:bg-accent-gray/10 rounded transition-colors"
+              className="p-2 hover:bg-accent-gray/10 active:bg-accent-gray/20 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+              aria-label="上个月"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
 
-            <div className="text-sm font-semibold text-primary-black">
+            <div className="text-base font-semibold text-primary-black">
               {currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月
             </div>
 
             <button
               type="button"
               onClick={handleNextMonth}
-              className="p-1 hover:bg-accent-gray/10 rounded transition-colors"
+              className="p-2 hover:bg-accent-gray/10 active:bg-accent-gray/20 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+              aria-label="下个月"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -210,7 +212,7 @@ export function CalendarPicker({
             ))}
           </div>
 
-          {/* Calendar days */}
+          {/* Calendar days - Mobile: larger touch targets */}
           <div className="grid grid-cols-7 gap-1">
             {calendarDays.map((day, index) => (
               <div key={index}>
@@ -219,19 +221,20 @@ export function CalendarPicker({
                     type="button"
                     onClick={() => handleDayClick(day)}
                     className={`
-                      w-full aspect-square flex items-center justify-center text-sm rounded-lg transition-colors
+                      w-full aspect-square min-h-[36px] sm:min-h-[32px] flex items-center justify-center text-sm rounded-lg transition-colors
                       ${isSelectedDay(day)
                         ? 'bg-accent-green text-white font-semibold'
                         : isToday(day)
                         ? 'bg-accent-green/10 text-accent-green font-medium'
-                        : 'hover:bg-accent-gray/10 text-primary-black'
+                        : 'hover:bg-accent-gray/10 active:bg-accent-gray/20 text-primary-black'
                       }
                     `}
+                    aria-label={`${currentMonth.getMonth() + 1}月${day}日`}
                   >
                     {day}
                   </button>
                 ) : (
-                  <div className="w-full aspect-square" />
+                  <div className="w-full aspect-square min-h-[36px] sm:min-h-[32px]" />
                 )}
               </div>
             ))}
@@ -242,7 +245,7 @@ export function CalendarPicker({
             <button
               type="button"
               onClick={handleToday}
-              className="w-full px-3 py-2 text-sm text-accent-green hover:bg-accent-green/10 rounded-lg transition-colors font-medium"
+              className="w-full px-3 py-3 text-base text-accent-green hover:bg-accent-green/10 active:bg-accent-green/20 rounded-lg transition-colors font-medium min-h-[44px]"
             >
               今天
             </button>

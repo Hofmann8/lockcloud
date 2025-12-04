@@ -322,35 +322,99 @@ export function BatchActionToolbar({ onOperationComplete, files = [] }: BatchAct
 
   return (
     <>
-      {/* Floating Toolbar */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
-        <div className="bg-primary-black text-primary-white rounded-2xl shadow-xl px-6 py-3 flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-            <span className="font-medium">已选择 {selectionCount} 个文件</span>
+      {/* Floating Toolbar - Mobile: fixed bottom with safe area, Desktop: centered floating */}
+      <div 
+        className="fixed bottom-0 md:bottom-6 left-0 md:left-1/2 right-0 md:right-auto md:-translate-x-1/2 z-40"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        data-testid="batch-action-toolbar"
+      >
+        <div className="bg-primary-black text-primary-white md:rounded-2xl shadow-xl px-3 sm:px-4 md:px-6 py-3 sm:py-4 flex flex-col md:flex-row items-stretch md:items-center gap-3 md:gap-4">
+          {/* Selection count */}
+          <div className="flex items-center justify-between md:justify-start gap-2">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              <span className="font-medium text-sm md:text-base whitespace-nowrap">已选择 {selectionCount} 个文件</span>
+            </div>
+            {/* Mobile close button - 44x44 touch target */}
+            <button 
+              onClick={clearSelection} 
+              className="md:hidden p-2 rounded-lg hover:bg-primary-white/10 active:bg-primary-white/20 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center touch-manipulation" 
+              title="取消选择" 
+              aria-label="取消选择"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <div className="w-px h-6 bg-primary-white/30" />
-          <div className="flex items-center gap-2">
-            <button onClick={() => setIsBatchEditOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/80 hover:bg-orange-500 transition-colors" title="批量编辑">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-              <span className="text-sm">批量编辑</span>
+          
+          <div className="hidden md:block w-px h-6 bg-primary-white/30" />
+          
+          {/* Action buttons - Mobile: grid layout with equal sizing, Desktop: flex row */}
+          <div className="grid grid-cols-4 md:flex md:flex-row items-center gap-2 sm:gap-3">
+            {/* Edit button */}
+            <button 
+              onClick={() => setIsBatchEditOpen(true)} 
+              className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 sm:px-3 md:px-3 py-2.5 sm:py-3 md:py-1.5 rounded-xl md:rounded-lg bg-orange-500/80 hover:bg-orange-500 active:bg-orange-600 transition-colors min-h-[52px] sm:min-h-[56px] md:min-h-[44px] touch-manipulation" 
+              title="批量编辑" 
+              aria-label="批量编辑"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              <span className="text-xs sm:text-sm md:text-sm font-medium">编辑</span>
             </button>
-            <button onClick={() => setIsAddTagModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-white/10 hover:bg-primary-white/20 transition-colors" title="添加标签">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
-              <span className="text-sm">添加标签</span>
+            {/* Add tag button */}
+            <button 
+              onClick={() => setIsAddTagModalOpen(true)} 
+              className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 sm:px-3 md:px-3 py-2.5 sm:py-3 md:py-1.5 rounded-xl md:rounded-lg bg-primary-white/10 hover:bg-primary-white/20 active:bg-primary-white/30 transition-colors min-h-[52px] sm:min-h-[56px] md:min-h-[44px] touch-manipulation" 
+              title="添加标签" 
+              aria-label="添加标签"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+              </svg>
+              <span className="text-xs sm:text-sm md:text-sm font-medium">加标签</span>
             </button>
-            <button onClick={openRemoveTagModal} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-white/10 hover:bg-primary-white/20 transition-colors" title="移除标签">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              <span className="text-sm">移除标签</span>
+            {/* Remove tag button */}
+            <button 
+              onClick={openRemoveTagModal} 
+              className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 sm:px-3 md:px-3 py-2.5 sm:py-3 md:py-1.5 rounded-xl md:rounded-lg bg-primary-white/10 hover:bg-primary-white/20 active:bg-primary-white/30 transition-colors min-h-[52px] sm:min-h-[56px] md:min-h-[44px] touch-manipulation" 
+              title="移除标签" 
+              aria-label="移除标签"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-xs sm:text-sm md:text-sm font-medium">移标签</span>
             </button>
-            <button onClick={() => setIsDeleteModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 transition-colors" title="删除文件">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              <span className="text-sm">删除</span>
+            {/* Delete button */}
+            <button 
+              onClick={() => setIsDeleteModalOpen(true)} 
+              className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 sm:px-3 md:px-3 py-2.5 sm:py-3 md:py-1.5 rounded-xl md:rounded-lg bg-red-500/80 hover:bg-red-500 active:bg-red-600 transition-colors min-h-[52px] sm:min-h-[56px] md:min-h-[44px] touch-manipulation" 
+              title="删除文件" 
+              aria-label="删除文件"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              <span className="text-xs sm:text-sm md:text-sm font-medium">删除</span>
             </button>
           </div>
-          <div className="w-px h-6 bg-primary-white/30" />
-          <button onClick={clearSelection} className="p-1.5 rounded-lg hover:bg-primary-white/10 transition-colors" title="取消选择">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          
+          {/* Desktop close button */}
+          <div className="hidden md:block w-px h-6 bg-primary-white/30" />
+          <button 
+            onClick={clearSelection} 
+            className="hidden md:flex p-1.5 rounded-lg hover:bg-primary-white/10 transition-colors items-center justify-center min-w-[44px] min-h-[44px]" 
+            title="取消选择" 
+            aria-label="取消选择"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
       </div>
@@ -374,7 +438,7 @@ export function BatchActionToolbar({ onOperationComplete, files = [] }: BatchAct
         <div className="space-y-4">
           <p className="text-accent-gray">为选中的 <span className="font-semibold text-primary-black">{selectionCount}</span> 个文件添加标签</p>
           <div className="relative">
-            <input type="text" value={tagInput} onChange={(e) => handleTagSearch(e.target.value)} placeholder="输入标签名称..." className="w-full px-4 py-2 border border-accent-gray/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-black/20" />
+            <input type="text" value={tagInput} onChange={(e) => handleTagSearch(e.target.value)} placeholder="输入标签名称..." className="w-full px-4 py-3 text-base border border-accent-gray/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-black/20 min-h-[44px]" />
             {tagSuggestions.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-primary-white border border-accent-gray/30 rounded-lg shadow-lg max-h-48 overflow-y-auto z-10">
                 {tagSuggestions.map((tag) => (

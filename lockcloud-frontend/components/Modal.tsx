@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from './Button';
+import { useIsMobile } from '@/lib/hooks/useMediaQuery';
 
 interface ModalProps {
   isOpen: boolean;
@@ -11,6 +12,8 @@ interface ModalProps {
   footer?: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   closeOnBackdrop?: boolean;
+  /** Enable swipe down to close on mobile (default: true) */
+  enableSwipeToClose?: boolean;
 }
 
 export function Modal({
@@ -21,8 +24,16 @@ export function Modal({
   footer,
   size = 'md',
   closeOnBackdrop = true,
+  enableSwipeToClose = true,
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  
+  // Swipe to close state
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartY = useRef(0);
+  const dragThreshold = 100; // pixels to drag before closing
   
   // Handle ESC key press
   useEffect(() => {
@@ -50,6 +61,40 @@ export function Modal({
     }
   };
   
+  // Touch handlers for swipe to close
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!isMobile || !enableSwipeToClose) return;
+    dragStartY.current = e.touches[0].clientY;
+    setIsDragging(true);
+  }, [isMobile, enableSwipeToClose]);
+  
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragging || !isMobile || !enableSwipeToClose) return;
+    const currentY = e.touches[0].clientY;
+    const diff = currentY - dragStartY.current;
+    // Only allow dragging down
+    if (diff > 0) {
+      setDragY(diff);
+    }
+  }, [isDragging, isMobile, enableSwipeToClose]);
+  
+  const handleTouchEnd = useCallback(() => {
+    if (!isMobile || !enableSwipeToClose) {
+      setDragY(0);
+      setIsDragging(false);
+      return;
+    }
+    if (dragY > dragThreshold) {
+      // Reset state before closing
+      setDragY(0);
+      setIsDragging(false);
+      onClose();
+    } else {
+      setDragY(0);
+      setIsDragging(false);
+    }
+  }, [dragY, isMobile, enableSwipeToClose, onClose]);
+  
   if (!isOpen) return null;
   
   const sizeStyles = {
@@ -59,31 +104,54 @@ export function Modal({
     xl: 'max-w-4xl',
   };
   
+  // Mobile: full screen or near full screen from bottom
+  // Desktop: centered floating modal
+  const mobileModalStyles = isMobile
+    ? 'inset-x-0 bottom-0 top-auto rounded-t-2xl rounded-b-none max-h-[95vh] w-full'
+    : `${sizeStyles[size]} max-h-[90vh] rounded-2xl`;
+  
+  const mobileContainerStyles = isMobile
+    ? 'items-end p-0'
+    : 'items-center p-4';
+  
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-4 bg-primary-black/50 backdrop-blur-md animate-in fade-in duration-200"
+      className={`fixed inset-0 z-50 flex justify-center bg-primary-black/50 backdrop-blur-md animate-in fade-in duration-200 ${mobileContainerStyles}`}
       onClick={handleBackdropClick}
     >
       <div
         ref={modalRef}
         className={`
           bg-primary-white
-          rounded-2xl
-          w-full ${sizeStyles[size]}
-          max-h-[90vh]
+          w-full
+          ${mobileModalStyles}
           overflow-hidden
           flex flex-col
           shadow-xl
-          animate-in fade-in zoom-in-95 duration-300
+          animate-in fade-in ${isMobile ? 'slide-in-from-bottom' : 'zoom-in-95'} duration-300
         `}
         style={{
           boxShadow: 'var(--shadow-xl)',
+          transform: isDragging ? `translateY(${dragY}px)` : undefined,
+          transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+          // Safe area padding for mobile devices with notches
+          paddingBottom: isMobile ? 'env(safe-area-inset-bottom, 0px)' : undefined,
         }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
+        {/* Mobile drag handle */}
+        {isMobile && enableSwipeToClose && (
+          <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing">
+            <div className="w-10 h-1 bg-accent-gray/40 rounded-full" />
+          </div>
+        )}
+        
         {/* Header */}
         {title && (
-          <div className="flex items-center justify-between p-4 md:p-6 border-b border-accent-gray/30">
-            <h2 className="text-xl md:text-2xl font-sans font-semibold text-primary-black">
+          <div className={`flex items-center justify-between border-b border-accent-gray/30 shrink-0 ${isMobile ? 'p-4' : 'p-4 md:p-6'}`}>
+            <h2 className={`font-sans font-semibold text-primary-black ${isMobile ? 'text-lg' : 'text-xl md:text-2xl'}`}>
               {title}
             </h2>
             <button
@@ -108,14 +176,14 @@ export function Modal({
           </div>
         )}
         
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        {/* Content - scrollable area */}
+        <div className={`flex-1 overflow-y-auto ${isMobile ? 'p-4' : 'p-4 md:p-6'}`}>
           {children}
         </div>
         
-        {/* Footer */}
+        {/* Footer - fixed at bottom */}
         {footer && (
-          <div className="flex items-center justify-end gap-3 p-4 md:p-6 border-t border-accent-gray/30">
+          <div className={`flex items-center justify-end gap-3 border-t border-accent-gray/30 shrink-0 ${isMobile ? 'p-4' : 'p-4 md:p-6'}`}>
             {footer}
           </div>
         )}

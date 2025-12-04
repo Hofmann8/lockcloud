@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getLogs } from '@/lib/api/logs';
 import { zhCN } from '@/locales/zh-CN';
@@ -8,7 +8,7 @@ import { TableSkeleton } from '@/components/SkeletonLoader';
 import { Button } from '@/components/Button';
 import { ErrorCard } from '@/components/ErrorCard';
 
-export default function LogsPage() {
+function LogsPageContent() {
   const [filters, setFilters] = useState({
     start_date: '',
     end_date: '',
@@ -304,5 +304,14 @@ export default function LogsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+export default function LogsPage() {
+  return (
+    <Suspense fallback={<div className="p-6"><TableSkeleton rows={10} columns={5} /></div>}>
+      <LogsPageContent />
+    </Suspense>
   );
 }

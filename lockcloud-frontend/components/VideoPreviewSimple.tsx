@@ -38,7 +38,7 @@ export function VideoPreviewSimple({
   // 错误状态
   if (hasError) {
     return (
-      <div className={`w-full min-h-[400px] flex items-center justify-center bg-gray-900 rounded-lg ${className}`}>
+      <div className={`w-full h-full flex items-center justify-center bg-black ${className}`}>
         <div className="text-center text-white p-8 max-w-md">
           <svg
             className="w-16 h-16 mx-auto mb-4 text-red-400"
@@ -78,10 +78,10 @@ export function VideoPreviewSimple({
   }
 
   return (
-    <div className={`w-full ${className}`}>
+    <div className={`w-full h-full flex items-center justify-center ${className}`}>
       <Suspense
         fallback={
-          <div className="w-full aspect-video flex items-center justify-center bg-gray-900 rounded-lg">
+          <div className="w-full h-full flex items-center justify-center bg-black">
             <div className="text-center text-white">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
               <p>加载播放器中...</p>
@@ -89,12 +89,14 @@ export function VideoPreviewSimple({
           </div>
         }
       >
-        <DanceVideoPlayer
-          key={retryKey}
-          src={url}
-          className="rounded-lg overflow-hidden"
-          onError={handleError}
-        />
+        <div className="w-full h-full flex items-center justify-center">
+          <DanceVideoPlayer
+            key={retryKey}
+            src={url}
+            className="max-w-full max-h-full"
+            onError={handleError}
+          />
+        </div>
       </Suspense>
     </div>
   );

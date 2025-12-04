@@ -244,15 +244,15 @@ function FilesPageContent() {
         )}
       </div>
 
-      {/* Row 2: All Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {/* Left: Selection + Media Type + Tags */}
+      {/* Row 2: All Controls - Mobile: Multi-row stacked layout */}
+      <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-2">
+        {/* Row 2a: Selection + Media Type (Mobile: Full width row) */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Batch Selection - 始终显示，防止布局跳动 */}
           <BatchSelectionHeader files={data?.files || []} />
           <div className="h-5 w-px bg-gray-200 hidden sm:block" />
 
-          {/* Media Type Pills */}
+          {/* Media Type Pills - Mobile: Larger touch targets */}
           <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
             {[
               { value: 'all' as MediaType, label: '全部' },
@@ -262,34 +262,41 @@ function FilesPageContent() {
               <button
                 key={value}
                 onClick={() => handleMediaTypeChange(value)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                className={`px-3 py-1.5 md:px-2.5 md:py-1 text-sm md:text-xs font-medium rounded-md transition-colors min-h-[36px] md:min-h-0 ${
                   currentMediaType === value
                     ? 'bg-white shadow-sm text-black'
-                    : 'text-gray-500 hover:text-black'
+                    : 'text-gray-500 hover:text-black active:bg-white/50'
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
+        </div>
 
-          {/* Current Tags */}
+        {/* Row 2b: Tags (Mobile: Full width row, wrapping) */}
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto md:flex-1">
+          {/* Current Tags - Mobile: Larger touch targets for remove button */}
           {currentTags.map(tag => (
             <span 
               key={tag}
-              className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-500 text-xs rounded-full"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 md:px-2 md:py-0.5 bg-orange-50 text-orange-500 text-sm md:text-xs rounded-full"
             >
               {tag}
-              <button onClick={() => handleRemoveTag(tag)} className="hover:text-red-500">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <button 
+                onClick={() => handleRemoveTag(tag)} 
+                className="hover:text-red-500 active:text-red-600 p-0.5 -mr-0.5 min-w-[24px] min-h-[24px] md:min-w-0 md:min-h-0 flex items-center justify-center"
+                aria-label={`移除标签 ${tag}`}
+              >
+                <svg className="w-3.5 h-3.5 md:w-3 md:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </span>
           ))}
 
-          {/* Tag Input with Autocomplete */}
-          <div className="relative flex items-center gap-1">
+          {/* Tag Input with Autocomplete - Mobile: Larger input */}
+          <div className="relative flex items-center gap-1.5 md:gap-1 flex-1 md:flex-none min-w-0">
             <input
               ref={tagInputRef}
               type="text"
@@ -312,8 +319,9 @@ function FilesPageContent() {
                 }
               }}
               placeholder="+ 标签"
-              className="w-20 sm:w-24 px-2 py-1 text-xs border border-gray-200 rounded-md 
-                focus:outline-none focus:border-orange-500 placeholder:text-gray-400"
+              className="flex-1 md:flex-none w-full md:w-24 px-3 py-2 md:px-2 md:py-1 text-sm md:text-xs border border-gray-200 rounded-md 
+                focus:outline-none focus:border-orange-500 placeholder:text-gray-400 min-h-[40px] md:min-h-0"
+              style={{ fontSize: '16px' }} // Prevent iOS zoom
             />
             <button
               onClick={() => {
@@ -324,20 +332,21 @@ function FilesPageContent() {
                 }
               }}
               disabled={!tagInput.trim()}
-              className="px-2 py-1 text-xs bg-orange-500 text-white rounded-md hover:bg-orange-600 
-                transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-2 md:px-2 md:py-1 text-sm md:text-xs bg-orange-500 text-white rounded-md hover:bg-orange-600 active:bg-orange-700
+                transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 flex items-center justify-center"
               title="添加标签"
+              aria-label="添加标签"
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 md:w-3 md:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
             </button>
             
-            {/* Tag Suggestions Dropdown */}
+            {/* Tag Suggestions Dropdown - Mobile: Larger touch targets */}
             {isTagDropdownOpen && suggestedTags.length > 0 && (
               <div
                 ref={tagDropdownRef}
-                className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto z-50"
+                className="absolute top-full left-0 mt-1 w-full md:w-48 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 md:max-h-48 overflow-y-auto z-50"
               >
                 {suggestedTags.map((tag: TagWithCount) => {
                   const lowerName = tag.name.toLowerCase();
@@ -348,7 +357,7 @@ function FilesPageContent() {
                     <button
                       key={tag.id}
                       onClick={() => handleAddTag(tag.name)}
-                      className="w-full px-3 py-2 text-left hover:bg-orange-50 transition-colors flex items-center justify-between text-xs"
+                      className="w-full px-4 py-3 md:px-3 md:py-2 text-left hover:bg-orange-50 active:bg-orange-100 transition-colors flex items-center justify-between text-sm md:text-xs min-h-[44px] md:min-h-0 border-b border-gray-100 last:border-b-0"
                     >
                       <span className="text-gray-800">
                         {matchIndex >= 0 && tagInput ? (
@@ -363,7 +372,7 @@ function FilesPageContent() {
                           tag.name
                         )}
                       </span>
-                      <span className="text-gray-400">{tag.count}</span>
+                      <span className="text-gray-400 ml-2">{tag.count}</span>
                     </button>
                   );
                 })}
@@ -372,17 +381,20 @@ function FilesPageContent() {
           </div>
         </div>
 
-        {/* Right: Per Page */}
-        <select
-          value={filters.per_page}
-          onChange={(e) => handlePerPageChange(parseInt(e.target.value))}
-          className="px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:border-orange-500 bg-white"
-        >
-          <option value={12}>12</option>
-          <option value={24}>24</option>
-          <option value={48}>48</option>
-          <option value={96}>96</option>
-        </select>
+        {/* Row 2c: Per Page (Mobile: Right aligned) */}
+        <div className="flex justify-end md:justify-start md:ml-auto">
+          <select
+            value={filters.per_page}
+            onChange={(e) => handlePerPageChange(parseInt(e.target.value))}
+            className="px-3 py-2 md:px-2 md:py-1 text-sm md:text-xs border border-gray-200 rounded-md focus:outline-none focus:border-orange-500 bg-white min-h-[40px] md:min-h-0"
+            aria-label="每页显示数量"
+          >
+            <option value={12}>12</option>
+            <option value={24}>24</option>
+            <option value={48}>48</option>
+            <option value={96}>96</option>
+          </select>
+        </div>
       </div>
 
       {/* Loading State */}

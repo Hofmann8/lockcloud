@@ -243,18 +243,18 @@ export function MultiFileUploadForm({
 
   return (
     <div className="card-functional overflow-hidden">
-      <div className="px-6 py-4 border-b border-accent-gray/10">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-accent-gray/10">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-accent-green/10 rounded-lg flex items-center justify-center">
-            <svg className="w-5 h-5 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-9 h-9 md:w-10 md:h-10 bg-accent-green/10 rounded-lg flex items-center justify-center shrink-0">
+            <svg className="w-4 h-4 md:w-5 md:h-5 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-primary-black">
               已选择 {filesWithNames.length} 个文件
             </p>
-            <p className="text-xs text-accent-gray">
+            <p className="text-xs text-accent-gray truncate">
               总大小: {formatFileSize(filesWithNames.reduce((sum, f) => sum + f.file.size, 0))}
             </p>
           </div>
@@ -262,7 +262,8 @@ export function MultiFileUploadForm({
       </div>
 
       <div className="p-4 md:p-6">
-        <div className="space-y-4 md:space-y-0 md:grid md:grid-cols-2 md:gap-6">
+        {/* Mobile: Single column vertical layout, Desktop: Two column grid */}
+        <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-6">
           {/* Left column - Calendar (desktop only) */}
           <div className="hidden md:block space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
@@ -295,9 +296,9 @@ export function MultiFileUploadForm({
             )}
           </div>
 
-          {/* Right column - Activity Name and Type */}
+          {/* Right column - Activity Name and Type (full width on mobile) */}
           <div className="space-y-4">
-            {/* Mobile date picker */}
+            {/* Mobile date picker - optimized for touch with larger touch targets */}
             <div className="md:hidden space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-primary-black">
                 <svg className="w-4 h-4 text-accent-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -317,7 +318,8 @@ export function MultiFileUploadForm({
                   setIsNewActivity(false);
                   if (errors.activityDate) setErrors({ ...errors, activityDate: undefined });
                 }}
-                className={`w-full px-3 py-2.5 text-sm border rounded-lg transition-colors
+                className={`w-full px-4 py-3 text-base border rounded-lg transition-colors
+                  min-h-[48px]
                   ${errors.activityDate 
                     ? 'border-semantic-error focus:border-semantic-error focus:ring-semantic-error/20' 
                     : 'border-accent-gray/30 focus:border-accent-green focus:ring-accent-green/20'
@@ -351,17 +353,19 @@ export function MultiFileUploadForm({
                   <span>加载当日活动...</span>
                 </div>
               ) : existingActivityNames.length > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
+                  {/* Activity name buttons - optimized for mobile touch */}
                   <div className="flex flex-wrap gap-2">
                     {existingActivityNames.map((activity) => (
                       <button
                         key={activity.name}
                         type="button"
                         onClick={() => handleActivityNameSelect(activity.name)}
-                        className={`px-3 py-1.5 text-sm rounded-lg border transition-colors
+                        className={`px-3 py-2 md:py-1.5 text-sm rounded-lg border transition-colors
+                          min-h-[44px] md:min-h-0
                           ${activityName === activity.name && !isNewActivity
                             ? 'bg-accent-green text-white border-accent-green'
-                            : 'bg-white text-primary-black border-accent-gray/30 hover:border-accent-green'
+                            : 'bg-white text-primary-black border-accent-gray/30 hover:border-accent-green active:bg-accent-green/10'
                           }`}
                       >
                         {activity.name}
@@ -369,14 +373,16 @@ export function MultiFileUploadForm({
                       </button>
                     ))}
                   </div>
-                  <div className="flex items-center gap-2">
+                  {/* New activity input - mobile optimized */}
+                  <div className="flex flex-col md:flex-row items-start md:items-center gap-2">
                     <span className="text-xs text-accent-gray">或</span>
                     <input
                       type="text"
                       value={isNewActivity ? activityName : ''}
                       onChange={(e) => handleNewActivityName(e.target.value)}
                       placeholder="输入新活动名称"
-                      className="flex-1 px-3 py-2 text-sm border border-accent-gray/30 rounded-lg transition-colors
+                      className="w-full md:flex-1 px-4 py-3 md:px-3 md:py-2 text-base md:text-sm border border-accent-gray/30 rounded-lg transition-colors
+                        min-h-[48px] md:min-h-0
                         focus:outline-none focus:ring-2 focus:border-accent-green focus:ring-accent-green/20"
                     />
                   </div>
@@ -389,7 +395,8 @@ export function MultiFileUploadForm({
                     value={activityName}
                     onChange={(e) => handleNewActivityName(e.target.value)}
                     placeholder="输入活动名称（如：周末团建、新年晚会）"
-                    className="w-full px-3 py-2.5 text-sm border border-accent-gray/30 rounded-lg transition-colors
+                    className="w-full px-4 py-3 md:px-3 md:py-2.5 text-base md:text-sm border border-accent-gray/30 rounded-lg transition-colors
+                      min-h-[48px] md:min-h-0
                       focus:outline-none focus:ring-2 focus:border-accent-green focus:ring-accent-green/20"
                   />
                 </div>
@@ -409,6 +416,7 @@ export function MultiFileUploadForm({
                 <span className="text-semantic-error">*</span>
               </div>
               
+              {/* Select with mobile-optimized styling */}
               <select
                 value={activityType}
                 onChange={(e) => {
@@ -416,13 +424,22 @@ export function MultiFileUploadForm({
                   if (errors.activityType) setErrors({ ...errors, activityType: undefined });
                 }}
                 disabled={loadingActivityTypes || (!isNewActivity && !!activityName && existingActivityNames.some(a => a.name === activityName))}
-                className={`w-full px-3 py-2.5 text-sm border rounded-lg transition-colors
+                className={`w-full px-4 py-3 md:px-3 md:py-2.5 text-base md:text-sm border rounded-lg transition-colors
+                  min-h-[48px] md:min-h-0
+                  appearance-none bg-white
                   ${errors.activityType 
                     ? 'border-semantic-error focus:border-semantic-error focus:ring-semantic-error/20' 
                     : 'border-accent-gray/30 focus:border-accent-green focus:ring-accent-green/20'
                   }
                   focus:outline-none focus:ring-2
                   disabled:bg-accent-gray/10 disabled:cursor-not-allowed`}
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
+                  backgroundPosition: 'right 0.75rem center',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundSize: '1.25em 1.25em',
+                  paddingRight: '2.5rem'
+                }}
               >
                 <option value="">选择活动类型</option>
                 {activityTypes.map((type) => (
@@ -453,17 +470,17 @@ export function MultiFileUploadForm({
 
       {/* Database existing files warning */}
       {existingFiles.size > 0 && (
-        <div className="px-6 pb-4">
+        <div className="px-4 md:px-6 pb-4">
           <div className="p-3 bg-semantic-error/10 border border-semantic-error/20 rounded-lg">
             <div className="flex items-start gap-2">
               <svg className="w-4 h-4 text-semantic-error mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-semantic-error">以下文件名已存在于数据库中</p>
-                <ul className="text-xs text-semantic-error/80 mt-1 space-y-0.5">
+                <ul className="text-xs text-semantic-error/80 mt-1 space-y-0.5 max-h-24 overflow-y-auto">
                   {Array.from(existingFiles).map((filename, index) => (
-                    <li key={index}>• {filename}</li>
+                    <li key={index} className="truncate">• {filename}</li>
                   ))}
                 </ul>
                 <p className="text-xs text-semantic-error/80 mt-2">
@@ -475,24 +492,27 @@ export function MultiFileUploadForm({
         </div>
       )}
 
-      <div className="px-6 py-4 border-t border-accent-gray/10 flex justify-end gap-3">
-        {isCheckingFilenames && (
-          <div className="flex items-center gap-2 text-sm text-accent-gray">
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-accent-green border-t-transparent"></div>
-            <span>检查文件名...</span>
-          </div>
-        )}
-        <Button
-          type="button"
-          variant="success"
-          size="lg"
-          onClick={handleAddToQueue}
-          disabled={!isFormValid || isCheckingFilenames}
-          loading={isCheckingFilenames}
-          className="min-w-[160px]"
-        >
-          {isCheckingFilenames ? '检查中...' : '添加到队列'}
-        </Button>
+      {/* Footer with submit button - mobile optimized */}
+      <div className="px-4 md:px-6 py-4 border-t border-accent-gray/10">
+        <div className="flex flex-col-reverse md:flex-row md:justify-end gap-3">
+          {isCheckingFilenames && (
+            <div className="flex items-center justify-center gap-2 text-sm text-accent-gray">
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-accent-green border-t-transparent"></div>
+              <span>检查文件名...</span>
+            </div>
+          )}
+          <Button
+            type="button"
+            variant="success"
+            size="lg"
+            onClick={handleAddToQueue}
+            disabled={!isFormValid || isCheckingFilenames}
+            loading={isCheckingFilenames}
+            className="w-full md:w-auto md:min-w-[160px] min-h-[48px] md:min-h-0"
+          >
+            {isCheckingFilenames ? '检查中...' : '添加到队列'}
+          </Button>
+        </div>
       </div>
     </div>
   );

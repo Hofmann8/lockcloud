@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { useFileStore } from '@/stores/fileStore';
+import { useDeviceDetect } from '@/lib/hooks/useDeviceDetect';
 import { Card } from './Card';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { EditFileDialog } from './EditFileDialog';
@@ -21,8 +22,14 @@ interface FileCardSimpleProps {
  * 
  * 只显示静态缩略图，不进行hover预览
  * 大幅降低流量消耗
+ * 
+ * 移动端适配 (Requirements: 3.3, 3.4):
+ * - 调整卡片内部元素间距
+ * - 优化字体大小和行高
+ * - 移动端显示操作按钮（替代 hover 显示）
  */
 export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
+  const { isMobile, isTouchDevice } = useDeviceDetect();
   const router = useRouter();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -58,20 +65,21 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
     return '📁';
   };
 
-  // 获取缩略图 URL
+  // 获取缩略图 URL - 使用缤纷云图片/视频处理参数
   const getThumbnailUrl = (): string | null => {
     if (!file.s3_key) return null;
     
     const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud2.s3.bitiful.net';
+    const width = isMobile ? 300 : 400;
     
-    // 视频：使用 S3 提供的视频第一帧服务
+    // 视频：使用缤纷云视频关键帧提取服务（frame=毫秒）
     if (isVideo) {
-      return `${baseUrl}/${file.s3_key}#t=0.1`;
+      return `${baseUrl}/${file.s3_key}?frame=100&w=${width}`;
     }
     
-    // 图片：使用压缩的图片URL
+    // 图片：根据设备类型使用不同尺寸
     if (isImage) {
-      return `${baseUrl}/${file.s3_key}?w=400&q=75`;
+      return `${baseUrl}/${file.s3_key}?w=${width}`;
     }
     
     return null;
@@ -121,22 +129,13 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
   return (
     <>
       <Card padding="none" hoverable className="overflow-hidden group">
-        {/* 缩略图/图标 */}
+        {/* 缩略图/图标 - 移动端高度稍小 */}
         <div
-          className="relative h-48 bg-accent-gray/10 flex items-center justify-center cursor-pointer overflow-hidden rounded-t-xl"
+          className="relative h-40 sm:h-44 md:h-48 bg-accent-gray/10 flex items-center justify-center cursor-pointer overflow-hidden rounded-t-xl"
           onClick={handleCardClick}
         >
-          {isVideo && file.public_url ? (
-            // 视频：使用 video 标签显示第一帧
-            <video
-              src={file.public_url}
-              className="w-full h-full object-cover"
-              preload="metadata"
-              muted
-              playsInline
-            />
-          ) : thumbnailUrl ? (
-            // 图片缩略图
+          {thumbnailUrl ? (
+            // 图片/视频缩略图（视频使用缤纷云关键帧提取）
             <img
               src={thumbnailUrl}
               alt={file.filename}
@@ -167,51 +166,51 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
           </div>
         </div>
 
-        {/* 文件信息 */}
-        <div className="p-3 space-y-2.5">
-          {/* 文件名 */}
-          <h3 className="font-semibold text-sm text-primary-black truncate" title={file.filename}>
+        {/* 文件信息 - 移动端优化间距 */}
+        <div className="p-2.5 sm:p-3 space-y-2 sm:space-y-2.5">
+          {/* 文件名 - 移动端字体稍大以便阅读 */}
+          <h3 className="font-semibold text-sm sm:text-sm text-primary-black truncate leading-tight sm:leading-normal" title={file.filename}>
             {file.filename}
           </h3>
 
-          {/* 元数据 */}
-          <div className="space-y-1.5">
+          {/* 元数据 - 移动端紧凑间距 */}
+          <div className="space-y-1 sm:space-y-1.5">
             {/* 活动日期 */}
-            <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <span className="text-xs text-primary-black">{file.activity_date ? formatActivityDate(file.activity_date) : '-'}</span>
+              <span className="text-xs text-primary-black leading-tight">{file.activity_date ? formatActivityDate(file.activity_date) : '-'}</span>
             </div>
             
             {/* 活动类型 */}
-            <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
               </svg>
-              <span className="text-xs text-primary-black">{file.activity_type_display || '-'}</span>
+              <span className="text-xs text-primary-black leading-tight">{file.activity_type_display || '-'}</span>
             </div>
             
             {/* 活动名称 */}
-            <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-accent-gray shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
-              <span className="text-xs text-primary-black truncate" title={file.activity_name}>{file.activity_name || '-'}</span>
+              <span className="text-xs text-primary-black truncate leading-tight" title={file.activity_name}>{file.activity_name || '-'}</span>
             </div>
           </div>
 
-          {/* 自由标签 */}
-          <div className="flex flex-wrap gap-1 min-h-[20px]">
+          {/* 自由标签 - 移动端显示更少标签 */}
+          <div className="flex flex-wrap gap-1 min-h-[18px] sm:min-h-[20px]">
             {file.free_tags && file.free_tags.length > 0 ? (
               <>
-                {file.free_tags.slice(0, 3).map(tag => (
-                  <span key={tag.id} className="px-1.5 py-0.5 text-xs bg-orange-50 text-orange-500 rounded">
+                {file.free_tags.slice(0, isMobile ? 2 : 3).map(tag => (
+                  <span key={tag.id} className="px-1 sm:px-1.5 py-0.5 text-xs bg-orange-50 text-orange-500 rounded leading-tight">
                     {tag.name}
                   </span>
                 ))}
-                {file.free_tags.length > 3 && (
-                  <span className="text-xs text-accent-gray">+{file.free_tags.length - 3}</span>
+                {file.free_tags.length > (isMobile ? 2 : 3) && (
+                  <span className="text-xs text-accent-gray">+{file.free_tags.length - (isMobile ? 2 : 3)}</span>
                 )}
               </>
             ) : (
@@ -222,28 +221,42 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
           {/* 底部信息 + 操作图标 */}
           <div className="flex items-center justify-between text-xs text-accent-gray pt-1.5 border-t border-accent-gray/15">
             <span>{formatSize(file.size)}</span>
-            <div className="flex items-center gap-1">
-              {/* 操作图标 - hover 时显示 */}
+            <div className="flex items-center gap-0.5 sm:gap-1">
+              {/* 操作图标 - 移动端/触摸设备始终显示，桌面端 hover 时显示 */}
               <button
                 onClick={(e) => { e.stopPropagation(); setIsEditDialogOpen(true); }}
-                className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded opacity-0 group-hover:opacity-100 transition-all"
+                className={[
+                  'p-1.5 sm:p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded transition-all',
+                  // 移动端/触摸设备: 始终显示，增大触摸区域
+                  // 桌面端: hover 时显示
+                  isMobile || isTouchDevice 
+                    ? 'opacity-100 min-w-[32px] min-h-[32px] sm:min-w-0 sm:min-h-0 flex items-center justify-center' 
+                    : 'opacity-0 group-hover:opacity-100'
+                ].join(' ')}
                 title="编辑"
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); handleDeleteClick(); }}
                 disabled={isDeleting}
-                className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+                className={[
+                  'p-1.5 sm:p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all disabled:opacity-50',
+                  // 移动端/触摸设备: 始终显示，增大触摸区域
+                  // 桌面端: hover 时显示
+                  isMobile || isTouchDevice 
+                    ? 'opacity-100 min-w-[32px] min-h-[32px] sm:min-w-0 sm:min-h-0 flex items-center justify-center' 
+                    : 'opacity-0 group-hover:opacity-100'
+                ].join(' ')}
                 title={isOwner ? "删除" : "请求删除"}
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
               </button>
-              <span className="ml-1">{file.uploader?.name || '-'}</span>
+              <span className="ml-0.5 sm:ml-1 truncate max-w-[60px] sm:max-w-none">{file.uploader?.name || '-'}</span>
             </div>
           </div>
         </div>

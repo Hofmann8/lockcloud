@@ -230,14 +230,14 @@ export function BatchEditDialog({ files, isOpen, onClose, onSuccess }: BatchEdit
           </div>
           <p className="text-xs text-gray-500 mb-4">留空的字段将保持原值不变，只有填写的字段会被修改</p>
           <form id="batch-edit-form" onSubmit={handlePreviewChanges} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">活动日期</label>
-                <input type="date" value={activityDate || ''} onChange={(e) => setActivityDate(e.target.value || undefined)} className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all" />
+                <input type="date" value={activityDate || ''} onChange={(e) => setActivityDate(e.target.value || undefined)} className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all min-h-[44px]" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">活动类型</label>
-                <select value={activityType || ''} onChange={(e) => setActivityType(e.target.value || undefined)} className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all">
+                <select value={activityType || ''} onChange={(e) => setActivityType(e.target.value || undefined)} className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all min-h-[44px]">
                   <option value="">不修改</option>
                   {activityTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.display_name}</option>)}
                 </select>
@@ -245,7 +245,7 @@ export function BatchEditDialog({ files, isOpen, onClose, onSuccess }: BatchEdit
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">活动名称</label>
-              <input type="text" value={activityName || ''} onChange={(e) => setActivityName(e.target.value)} placeholder="留空表示不修改，输入空格后删除可清空" className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all placeholder:text-gray-400" />
+              <input type="text" value={activityName || ''} onChange={(e) => setActivityName(e.target.value)} placeholder="留空表示不修改，输入空格后删除可清空" className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all placeholder:text-gray-400 min-h-[44px]" />
             </div>
           </form>
         </div>

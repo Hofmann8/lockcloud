@@ -5,6 +5,7 @@
  * 
  * A reusable button for opening the sidebar on mobile devices.
  * Hidden on desktop (lg breakpoint and above).
+ * Meets WCAG 2.1 touch target requirements (44x44px minimum).
  */
 export function MobileMenuButton() {
   const handleClick = () => {
@@ -15,7 +16,7 @@ export function MobileMenuButton() {
   return (
     <button
       onClick={handleClick}
-      className="lg:hidden p-2 rounded-lg border border-accent-gray/30 hover:bg-accent-gray/10 transition-colors flex items-center justify-center"
+      className="lg:hidden p-2.5 rounded-lg border border-accent-gray/30 hover:bg-accent-gray/10 active:bg-accent-gray/20 transition-colors flex items-center justify-center min-w-[44px] min-h-[44px]"
       aria-label="打开目录"
     >
       <svg 

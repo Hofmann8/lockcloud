@@ -248,7 +248,8 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
             placeholder="搜索文件名、活动类型、日期 (如: 2025-03 或 常规训练)..."
             className="w-full px-4 py-3 pr-10 text-base border-2 border-accent-gray/30 rounded-lg 
                      focus:border-accent-blue focus:outline-none transition-colors
-                     placeholder:text-accent-gray/60"
+                     placeholder:text-accent-gray/60 min-h-[48px]"
+            style={{ fontSize: '16px' }}
           />
           <svg
             className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-accent-gray"
@@ -275,7 +276,7 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
               <button
                 key={`${suggestion.type}-${suggestion.value}`}
                 onClick={() => selectSuggestion(suggestion)}
-                className={`w-full px-4 py-3 text-left hover:bg-accent-blue/5 transition-colors
+                className={`w-full px-4 py-3 text-left hover:bg-accent-blue/5 active:bg-accent-blue/10 transition-colors min-h-[48px]
                           ${index === selectedIndex ? 'bg-accent-blue/10' : ''}
                           ${index > 0 ? 'border-t border-accent-gray/20' : ''}`}
               >
@@ -310,9 +311,9 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
                 }
                 onFilterChange(clearFilter);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue/10 
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-accent-blue/10 
                        text-accent-blue text-sm rounded-full hover:bg-accent-blue/20 
-                       transition-colors group"
+                       active:bg-accent-blue/30 transition-colors group min-h-[36px]"
             >
               <span>{tag.label}</span>
               <svg
@@ -333,7 +334,8 @@ export function UnifiedSearch({ filters, onFilterChange }: UnifiedSearchProps) {
           <button
             onClick={clearFilters}
             className="text-sm text-accent-orange hover:text-accent-orange/80 
-                     font-medium transition-colors"
+                     active:text-accent-orange/60 font-medium transition-colors
+                     px-2 py-2 rounded-lg min-h-[36px]"
           >
             清除全部
           </button>

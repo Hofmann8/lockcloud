@@ -258,14 +258,14 @@ export function MultiFileUploadZone({ filesWithNames, onFilesChange, existingFil
           </div>
         </div>
 
-        {/* Mobile: Simple Upload Button */}
+        {/* Mobile: Simple Upload Button - optimized for touch */}
         <div className="md:hidden">
-          <div className="bg-white rounded-xl border-2 border-accent-gray/30 p-6">
+          <div className="bg-white rounded-xl border-2 border-accent-gray/30 p-5">
             <div className="space-y-4">
               <div className="flex justify-center">
-                <div className="w-16 h-16 rounded-full bg-accent-blue/10 flex items-center justify-center">
+                <div className="w-14 h-14 rounded-full bg-accent-blue/10 flex items-center justify-center">
                   <svg
-                    className="w-8 h-8 text-accent-blue"
+                    className="w-7 h-7 text-accent-blue"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -292,15 +292,18 @@ export function MultiFileUploadZone({ filesWithNames, onFilesChange, existingFil
                 </p>
               </div>
 
+              {/* Large touch-friendly button */}
               <button
                 type="button"
                 onClick={handleSelectFileClick}
-                className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-accent-green text-white rounded-lg font-medium hover:bg-accent-green/90 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-accent-green text-white rounded-xl font-medium 
+                  hover:bg-accent-green/90 active:bg-accent-green/80 active:scale-[0.98] transition-all
+                  min-h-[56px] touch-manipulation"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                <span>选择文件</span>
+                <span className="text-base">选择文件</span>
               </button>
             </div>
           </div>
@@ -309,27 +312,27 @@ export function MultiFileUploadZone({ filesWithNames, onFilesChange, existingFil
 
       {/* Selected Files Preview with Custom Filename */}
       {filesWithNames.length > 0 && (
-        <div className="card-functional p-4">
+        <div className="card-functional p-3 md:p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold text-primary-black">
+            <h3 className="text-sm md:text-base font-semibold text-primary-black">
               已选择 {filesWithNames.length} 个文件
             </h3>
             <button
               onClick={() => onFilesChange([])}
-              className="text-xs text-accent-gray hover:text-semantic-error transition-colors"
+              className="px-3 py-1.5 text-xs text-accent-gray hover:text-semantic-error hover:bg-semantic-error/10 rounded-lg transition-colors min-h-[36px] md:min-h-0"
             >
               清空
             </button>
           </div>
 
-          <div className="space-y-2 max-h-96 overflow-y-auto">
+          <div className="space-y-2 max-h-80 md:max-h-96 overflow-y-auto">
             {filesWithNames.map((fileItem) => {
               const fileExtension = fileItem.file.name.match(/\.[^/.]+$/)?.[0] || '';
               
               return (
                 <div key={fileItem.id} className="flex flex-col gap-2 p-3 bg-accent-gray/5 rounded-lg">
                   {/* File Info Row */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 md:gap-3">
                     <div className="w-8 h-8 rounded bg-accent-gray/10 flex items-center justify-center shrink-0">
                       <svg
                         className="w-4 h-4 text-accent-gray"
@@ -347,7 +350,7 @@ export function MultiFileUploadZone({ filesWithNames, onFilesChange, existingFil
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-primary-black truncate" title={fileItem.file.name}>
+                      <p className="text-xs md:text-sm font-medium text-primary-black truncate" title={fileItem.file.name}>
                         {fileItem.file.name}
                       </p>
                       <p className="text-xs text-accent-gray">
@@ -355,9 +358,10 @@ export function MultiFileUploadZone({ filesWithNames, onFilesChange, existingFil
                       </p>
                     </div>
 
+                    {/* Remove button - larger touch target on mobile */}
                     <button
                       onClick={() => removeFile(fileItem.id)}
-                      className="p-1.5 hover:bg-accent-gray/10 rounded transition-colors"
+                      className="p-2 md:p-1.5 hover:bg-accent-gray/10 active:bg-accent-gray/20 rounded-lg transition-colors min-w-[40px] min-h-[40px] md:min-w-0 md:min-h-0 flex items-center justify-center"
                       title="移除文件"
                     >
                       <svg className="w-4 h-4 text-accent-gray" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -366,22 +370,24 @@ export function MultiFileUploadZone({ filesWithNames, onFilesChange, existingFil
                     </button>
                   </div>
 
-                  {/* Custom Filename Input Row */}
-                  <div className="flex items-center gap-2 pl-11">
+                  {/* Custom Filename Input Row - mobile optimized */}
+                  <div className="flex items-center gap-2 pl-0 md:pl-11">
                     <div className="flex-1 relative">
                       <input
                         type="text"
                         value={fileItem.customFilename}
                         onChange={(e) => updateCustomFilename(fileItem.id, e.target.value)}
-                        placeholder="自定义文件名（可选，留空使用原文件名）"
-                        className={`w-full px-3 py-1.5 pr-16 text-xs border rounded focus:ring-1 focus:outline-none placeholder:text-accent-gray/50 ${
+                        placeholder="自定义文件名（可选）"
+                        className={`w-full px-3 py-2.5 md:py-1.5 pr-16 text-sm md:text-xs border rounded-lg focus:ring-1 focus:outline-none placeholder:text-accent-gray/50
+                          min-h-[44px] md:min-h-0
+                          ${
                           duplicates.has(getFileDisplayName(fileItem)) || existingFiles.has(getFileDisplayName(fileItem))
                             ? 'border-semantic-error focus:border-semantic-error focus:ring-semantic-error/20'
                             : 'border-accent-gray/30 focus:border-accent-green focus:ring-accent-green/20'
                         }`}
                       />
                       {fileExtension && (
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-accent-gray pointer-events-none">
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-accent-gray pointer-events-none bg-white px-1">
                           {fileExtension}
                         </div>
                       )}
@@ -390,7 +396,7 @@ export function MultiFileUploadZone({ filesWithNames, onFilesChange, existingFil
 
                   {/* Duplicate warning */}
                   {duplicates.has(getFileDisplayName(fileItem)) && (
-                    <div className="flex items-start gap-1 pl-11 text-xs text-semantic-error">
+                    <div className="flex items-start gap-1 pl-0 md:pl-11 text-xs text-semantic-error">
                       <svg className="w-3 h-3 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                       </svg>
@@ -400,7 +406,7 @@ export function MultiFileUploadZone({ filesWithNames, onFilesChange, existingFil
 
                   {/* Database existing file warning */}
                   {existingFiles.has(getFileDisplayName(fileItem)) && (
-                    <div className="flex items-start gap-1 pl-11 text-xs text-semantic-error">
+                    <div className="flex items-start gap-1 pl-0 md:pl-11 text-xs text-semantic-error">
                       <svg className="w-3 h-3 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                       </svg>

@@ -118,9 +118,9 @@ export function DanceVideoPlayer({
   };
 
   return (
-    <div className={`dance-video-player relative ${className}`}>
+    <div className={`dance-video-player relative w-full h-full ${className}`}>
       {/* 视频播放器 */}
-      <div className={isMirrored ? 'scale-x-[-1]' : ''}>
+      <div className={`w-full h-full ${isMirrored ? 'scale-x-[-1]' : ''}`}>
         <Plyr
           ref={plyrRef}
           source={{

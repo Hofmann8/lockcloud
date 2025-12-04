@@ -151,12 +151,13 @@ export function FlexibleTagInput({
           `}
         />
 
-        {/* Dropdown icon */}
+        {/* Dropdown icon - with proper touch target */}
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           disabled={disabled}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-accent-gray hover:text-primary-black transition-colors"
+          className="absolute right-1 top-1/2 -translate-y-1/2 text-accent-gray hover:text-primary-black active:text-primary-black/80 transition-colors p-2 min-w-[40px] min-h-[40px] flex items-center justify-center"
+          aria-label={isOpen ? '关闭下拉菜单' : '打开下拉菜单'}
         >
           <svg
             className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
@@ -181,11 +182,11 @@ export function FlexibleTagInput({
                     key={option.id}
                     type="button"
                     onClick={() => handleSelect(option)}
-                    className="w-full px-4 py-2.5 text-left hover:bg-accent-green/10 transition-colors flex items-center justify-between group"
+                    className="w-full px-4 py-3 text-left hover:bg-accent-green/10 active:bg-accent-green/20 transition-colors flex items-center justify-between group min-h-[44px]"
                   >
-                    <span className="text-sm text-primary-black">{option.display_name}</span>
+                    <span className="text-base text-primary-black">{option.display_name}</span>
                     {value === option.value && (
-                      <svg className="w-4 h-4 text-accent-green" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="w-5 h-5 text-accent-green" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                     )}
@@ -204,7 +205,7 @@ export function FlexibleTagInput({
                     value={newDisplayName}
                     onChange={(e) => setNewDisplayName(e.target.value)}
                     placeholder="输入显示名称"
-                    className="input-functional w-full px-3 py-2 text-sm"
+                    className="input-functional w-full px-3 py-2.5 text-base min-h-[44px]"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -216,7 +217,7 @@ export function FlexibleTagInput({
                     type="button"
                     onClick={handleAddNew}
                     disabled={isAddingNew || !newDisplayName.trim()}
-                    className="w-full px-3 py-2 text-sm bg-accent-green text-white rounded-lg hover:bg-accent-green/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full px-3 py-2.5 text-base bg-accent-green text-white rounded-lg hover:bg-accent-green/90 active:bg-accent-green/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[44px]"
                   >
                     {isAddingNew ? (
                       <>

@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Image from 'next/image';
-import { getOptimalImageSize, buildS3ImageUrl, buildOptimizedImageUrl } from '@/lib/utils/responsiveImage';
+import { useState, useMemo } from 'react';
+import { buildOptimizedImageUrl, buildS3ImageUrl } from '@/lib/utils/responsiveImage';
+import { useDeviceDetect } from '@/lib/hooks/useDeviceDetect';
 
 interface ImagePreviewProps {
   url: string;
@@ -22,31 +22,33 @@ interface ImagePreviewProps {
  * - Error handling with retry option
  * - Responsive design
  * - Automatic image optimization based on device capabilities
+ * - Mobile-specific image size optimization (Requirements: 10.2)
  * 
- * Requirements: 3.2, 7.1, 7.2, 7.3, 7.4, 7.5
+ * Requirements: 3.2, 7.1, 7.2, 7.3, 7.4, 7.5, 10.2
  */
 export function ImagePreview({ url, alt, s3Key }: ImagePreviewProps) {
+  const { isMobile, isTablet } = useDeviceDetect();
   const [isZoomed, setIsZoomed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  const [optimizedUrl, setOptimizedUrl] = useState<string>(url);
 
-  // Calculate optimized URL on mount and when s3Key changes
-  useEffect(() => {
+  // Calculate optimized URL using useMemo with device-specific sizing (Requirements: 10.2)
+  const optimizedUrl = useMemo(() => {
     if (s3Key) {
-      // If s3Key is provided, use optimized loading
-      const optimized = buildOptimizedImageUrl(s3Key);
-      setOptimizedUrl(optimized);
-    } else if (url) {
-      // Fallback to original URL if no s3Key
-      setOptimizedUrl(url);
-    } else {
-      // If no URL at all, set error state
-      setHasError(true);
-      setIsLoading(false);
+      // Mobile: smaller images to reduce bandwidth
+      if (isMobile) {
+        return buildS3ImageUrl(s3Key, { width: 800, quality: 80, format: 'webp' });
+      }
+      // Tablet: medium-sized images
+      if (isTablet) {
+        return buildS3ImageUrl(s3Key, { width: 1200, quality: 85, format: 'webp' });
+      }
+      // Desktop: use full optimization
+      return buildOptimizedImageUrl(s3Key);
     }
-  }, [s3Key, url]);
+    return url || '';
+  }, [s3Key, url, isMobile, isTablet]);
 
   const handleImageLoad = () => {
     setIsLoading(false);
@@ -71,13 +73,13 @@ export function ImagePreview({ url, alt, s3Key }: ImagePreviewProps) {
   };
 
   return (
-    <div className="w-full h-full min-h-[300px] sm:min-h-[400px] lg:min-h-[500px] flex items-center justify-center p-3 sm:p-4 lg:p-6" role="region" aria-label="图片预览">
+    <div className="w-full h-full flex items-center justify-center" role="region" aria-label="图片预览">
       {/* Loading State */}
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-50" role="status" aria-live="polite" aria-label="加载图片中">
+        <div className="absolute inset-0 flex items-center justify-center bg-black" role="status" aria-live="polite" aria-label="加载图片中">
           <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-accent-blue mb-4" aria-hidden="true"></div>
-            <p className="text-accent-gray text-sm">加载图片中...</p>
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4" aria-hidden="true"></div>
+            <p className="text-white/70 text-sm">加载图片中...</p>
           </div>
         </div>
       )}
@@ -160,7 +162,7 @@ export function ImagePreview({ url, alt, s3Key }: ImagePreviewProps) {
       {/* Image Display */}
       {!hasError && (
         <div
-          className={`relative max-w-full max-h-full transition-all duration-300 ${
+          className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
             isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
           } ${isLoading ? 'opacity-0' : 'opacity-100'}`}
           onClick={toggleZoom}
@@ -174,37 +176,28 @@ export function ImagePreview({ url, alt, s3Key }: ImagePreviewProps) {
             }
           }}
         >
-          <div
-            className={`relative transition-transform duration-300 ${
-              isZoomed ? 'scale-150' : 'scale-100'
-            }`}
-            style={{
-              maxWidth: isZoomed ? 'none' : '100%',
-              maxHeight: isZoomed ? 'none' : 'calc(100vh - 300px)',
-            }}
-          >
-            {optimizedUrl && (
-              <Image
-                key={`${optimizedUrl}-${retryCount}`}
-                src={optimizedUrl}
-                alt={alt}
-                width={1200}
-                height={800}
-                className="object-contain w-auto h-auto max-w-full max-h-[calc(100vh-200px)] sm:max-h-[calc(100vh-250px)] lg:max-h-[calc(100vh-300px)]"
-                onLoad={handleImageLoad}
-                onError={handleImageError}
-                priority={false}
-                loading="lazy"
-                quality={85}
-                unoptimized
-                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
-              />
-            )}
-          </div>
+          {optimizedUrl && (
+            <img
+              key={`${optimizedUrl}-${retryCount}`}
+              src={optimizedUrl}
+              alt={alt}
+              className={`object-contain transition-transform duration-300 ${
+                isZoomed ? 'scale-150' : 'scale-100'
+              }`}
+              style={{ 
+                maxWidth: '100%', 
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto'
+              }}
+              onLoad={handleImageLoad}
+              onError={handleImageError}
+            />
+          )}
 
           {/* Zoom Hint */}
           {!isLoading && (
-            <div className="absolute bottom-2 right-2 sm:bottom-4 sm:right-4 bg-primary-black/70 text-primary-white px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2" aria-hidden="true">
+            <div className="absolute bottom-2 right-2 sm:bottom-4 sm:right-4 bg-black/70 text-white px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2" aria-hidden="true">
               <svg
                 className="w-3 h-3 sm:w-4 sm:h-4"
                 fill="none"

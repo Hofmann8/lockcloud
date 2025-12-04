@@ -73,15 +73,17 @@ export function Pagination({
 
       {/* 分页按钮 */}
       <div className="flex items-center gap-2">
-        {/* 上一页按钮 */}
+        {/* 上一页按钮 - Mobile: 44x44px touch target */}
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={!hasPrev}
           className={`
+            min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0
             px-3 py-2 rounded-lg text-sm font-medium transition-colors
+            flex items-center justify-center
             ${
               hasPrev
-                ? 'bg-white border border-accent-gray/30 text-primary-black hover:bg-accent-gray/10'
+                ? 'bg-white border border-accent-gray/30 text-primary-black hover:bg-accent-gray/10 active:bg-accent-gray/20'
                 : 'bg-accent-gray/10 text-accent-gray/50 cursor-not-allowed'
             }
           `}
@@ -111,7 +113,8 @@ export function Pagination({
                 key={pageNum}
                 onClick={() => onPageChange(pageNum)}
                 className={`
-                  min-w-[40px] px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                  min-w-[40px] min-h-[40px] px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                  flex items-center justify-center
                   ${
                     isActive
                       ? 'bg-accent-blue text-white'
@@ -128,19 +131,21 @@ export function Pagination({
         </div>
 
         {/* 移动端：简单的页码显示 */}
-        <div className="sm:hidden px-3 py-2 text-sm font-medium text-primary-black">
+        <div className="sm:hidden px-3 py-2 text-sm font-medium text-primary-black min-h-[44px] flex items-center">
           {currentPage} / {totalPages}
         </div>
 
-        {/* 下一页按钮 */}
+        {/* 下一页按钮 - Mobile: 44x44px touch target */}
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={!hasNext}
           className={`
+            min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0
             px-3 py-2 rounded-lg text-sm font-medium transition-colors
+            flex items-center justify-center
             ${
               hasNext
-                ? 'bg-white border border-accent-gray/30 text-primary-black hover:bg-accent-gray/10'
+                ? 'bg-white border border-accent-gray/30 text-primary-black hover:bg-accent-gray/10 active:bg-accent-gray/20'
                 : 'bg-accent-gray/10 text-accent-gray/50 cursor-not-allowed'
             }
           `}
@@ -169,7 +174,7 @@ export function Pagination({
                 }
               }
             }}
-            className="w-16 px-2 py-1 text-sm border border-accent-gray/30 rounded focus:outline-none focus:ring-2 focus:ring-accent-blue/20"
+            className="w-16 px-2 py-2 text-base border border-accent-gray/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-blue/20 min-h-[40px]"
           />
           <span className="text-sm text-accent-gray">页</span>
         </div>

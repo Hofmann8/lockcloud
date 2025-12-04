@@ -41,9 +41,11 @@ export default function UploadPage() {
       </div>
 
       {/* Main Layout: Upload Form + Queue */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Mobile: Stack vertically with queue at bottom */}
+      {/* Desktop: Side by side with queue on right */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Left: Upload Zone and Form (2/3 width on desktop) */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4 md:space-y-6">
           {/* Upload Zone - File selection with custom filenames */}
           <MultiFileUploadZone
             filesWithNames={filesWithNames}
@@ -63,9 +65,13 @@ export default function UploadPage() {
         </div>
 
         {/* Right: Upload Queue (1/3 width on desktop) */}
+        {/* On mobile, show at bottom with limited height */}
         <div className="lg:col-span-1">
-          <div className="sticky top-6">
-            <UploadQueue />
+          <div className="lg:sticky lg:top-6">
+            {/* Mobile: limit height to prevent taking too much space */}
+            <div className="max-h-[300px] md:max-h-none overflow-hidden">
+              <UploadQueue />
+            </div>
           </div>
         </div>
       </div>

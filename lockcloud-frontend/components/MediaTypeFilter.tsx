@@ -42,7 +42,8 @@ const mediaTypeOptions: { value: MediaType; label: string; icon: React.ReactNode
 
 /**
  * MediaTypeFilter component - Radio buttons for filtering by media type
- * Requirements: 2.1, 2.2, 2.3
+ * Requirements: 2.1, 2.2, 2.3, 8.4
+ * Mobile: Larger touch targets, full-width buttons on small screens
  */
 export function MediaTypeFilter({ value, onChange, disabled = false }: MediaTypeFilterProps) {
   return (
@@ -50,7 +51,8 @@ export function MediaTypeFilter({ value, onChange, disabled = false }: MediaType
       <label className="block text-sm font-medium text-primary-black mb-2">
         媒体类型
       </label>
-      <div className="flex flex-wrap gap-2">
+      {/* Mobile: Full width buttons stacked, Desktop: Inline flex */}
+      <div className="flex flex-col sm:flex-row gap-2 w-full">
         {mediaTypeOptions.map((option) => (
           <button
             key={option.value}
@@ -58,11 +60,12 @@ export function MediaTypeFilter({ value, onChange, disabled = false }: MediaType
             onClick={() => onChange(option.value)}
             disabled={disabled}
             className={`
-              flex items-center gap-2 px-3 py-2 rounded-lg border transition-all
-              min-h-[44px] text-sm font-medium
+              flex items-center justify-center sm:justify-start gap-2 
+              px-4 py-3 sm:px-3 sm:py-2 rounded-lg border transition-all
+              min-h-[44px] text-sm font-medium w-full sm:w-auto
               ${value === option.value
                 ? 'bg-accent-blue text-primary-white border-accent-blue'
-                : 'bg-primary-white text-primary-black border-accent-gray/30 hover:border-accent-blue hover:text-accent-blue'
+                : 'bg-primary-white text-primary-black border-accent-gray/30 hover:border-accent-blue hover:text-accent-blue active:bg-accent-blue/5'
               }
               ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
             `}

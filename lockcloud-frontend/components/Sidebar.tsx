@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, TouchEvent } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as filesApi from '@/lib/api/files';
 import { DirectoryNode } from '@/types';
+import { useMediaQuery } from '@/lib/hooks/useMediaQuery';
 
 // Activity type icon mapping
 const activityTypeIcons: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
@@ -285,9 +286,22 @@ interface SidebarProps {
   onOpen: () => void;
 }
 
+// Swipe gesture threshold in pixels
+const SWIPE_THRESHOLD = 50;
+const SWIPE_VELOCITY_THRESHOLD = 0.3;
+
 export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const isMobile = useMediaQuery('(max-width: 1023px)');
+  
+  // Swipe gesture state
+  const sidebarRef = useRef<HTMLElement>(null);
+  const touchStartY = useRef<number>(0);
+  const touchStartX = useRef<number>(0);
+  const touchStartTime = useRef<number>(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState(0);
   
   // Get current filter values from URL
   const currentYear = searchParams.get('year');
@@ -325,29 +339,123 @@ export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
     if (window.innerWidth < 1024) onClose();
   }, [onClose]);
 
+  // Handle touch start for swipe gesture
+  const handleTouchStart = useCallback((e: TouchEvent<HTMLElement>) => {
+    if (!isMobile) return;
+    const touch = e.touches[0];
+    touchStartY.current = touch.clientY;
+    touchStartX.current = touch.clientX;
+    touchStartTime.current = Date.now();
+    setIsDragging(true);
+  }, [isMobile]);
+
+  // Handle touch move for swipe gesture
+  const handleTouchMove = useCallback((e: TouchEvent<HTMLElement>) => {
+    if (!isMobile || !isDragging) return;
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - touchStartY.current;
+    const deltaX = touch.clientX - touchStartX.current;
+    
+    // Only track vertical swipe down (for bottom sheet style)
+    // Or horizontal swipe left (for slide-out style)
+    if (deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX)) {
+      // Vertical swipe down - for bottom sheet feel
+      setDragOffset(Math.min(deltaY, 200));
+    } else if (deltaX < 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      // Horizontal swipe left - for slide-out
+      setDragOffset(Math.min(Math.abs(deltaX), 200));
+    }
+  }, [isMobile, isDragging]);
+
+  // Handle touch end for swipe gesture
+  const handleTouchEnd = useCallback(() => {
+    if (!isMobile || !isDragging) return;
+    
+    const touchDuration = Date.now() - touchStartTime.current;
+    const velocity = dragOffset / touchDuration;
+    
+    // Close if swipe exceeds threshold or velocity is high enough
+    if (dragOffset > SWIPE_THRESHOLD || velocity > SWIPE_VELOCITY_THRESHOLD) {
+      onClose();
+    }
+    
+    setIsDragging(false);
+    setDragOffset(0);
+  }, [isMobile, isDragging, dragOffset, onClose]);
+
+  // Prevent body scroll when sidebar is open on mobile
+  useEffect(() => {
+    if (isMobile && isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isMobile, isOpen]);
+
+  // Calculate transform style for drag feedback
+  const getDragTransform = () => {
+    if (!isDragging || dragOffset === 0) return undefined;
+    // Apply a subtle transform during drag for visual feedback
+    return `translateX(-${dragOffset * 0.5}px)`;
+  };
+
   return (
     <>
-      {/* Mobile Overlay */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={onClose}
-        />
-      )}
+      {/* Mobile Overlay - with fade animation */}
+      <div 
+        className={`
+          fixed inset-0 bg-black/50 z-40 lg:hidden
+          transition-opacity duration-300 ease-out
+          ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+        `}
+        onClick={onClose}
+        aria-hidden="true"
+      />
       
-      {/* Sidebar */}
-      <aside className={`
-        fixed lg:static inset-y-0 left-0 z-50
-        w-64 bg-white border-r border-black/10 h-full flex flex-col overflow-hidden
-        transform transition-transform duration-300 lg:transform-none
-        ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
+      {/* Sidebar - Bottom Sheet style on mobile */}
+      <aside 
+        ref={sidebarRef}
+        className={`
+          fixed lg:static z-50
+          bg-white border-r border-black/10 flex flex-col overflow-hidden
+          
+          /* Mobile: Bottom Sheet style */
+          inset-x-0 bottom-0 top-auto
+          max-h-[85vh] rounded-t-2xl
+          
+          /* Desktop: Traditional sidebar */
+          lg:inset-y-0 lg:left-0 lg:right-auto lg:top-0 lg:bottom-0
+          lg:w-64 lg:max-h-full lg:rounded-none lg:h-full
+          
+          /* Animation */
+          transform transition-transform duration-300 ease-out lg:transform-none
+          ${isOpen ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'}
+        `}
+        style={{
+          transform: isDragging && isMobile ? getDragTransform() : undefined,
+          transition: isDragging ? 'none' : undefined,
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        role="navigation"
+        aria-label="目录导航"
+      >
+        {/* Mobile Drag Handle - for swipe gesture affordance */}
+        <div className="lg:hidden flex justify-center pt-2 pb-1">
+          <div className="w-10 h-1 bg-gray-300 rounded-full" />
+        </div>
+        
         {/* Mobile Header */}
-        <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-black/10">
+        <div className="lg:hidden flex items-center justify-between px-4 py-2 border-b border-black/10">
           <span className="font-medium text-black">目录</span>
           <button 
             onClick={onClose} 
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label="关闭目录"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -355,14 +463,14 @@ export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 custom-scrollbar-nav">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 lg:p-3 custom-scrollbar-nav">
           <div className="flex items-center justify-between mb-2">
             <Link 
               href="/files" 
-              className="flex items-center gap-2 px-2 py-2 rounded-lg text-black hover:text-orange-500 hover:bg-gray-50 font-medium text-sm transition-colors flex-1"
+              className="flex items-center gap-2 px-3 py-3 lg:px-2 lg:py-2 rounded-lg text-black hover:text-orange-500 hover:bg-gray-50 font-medium text-sm transition-colors flex-1 min-h-[44px] lg:min-h-0"
               onClick={closeMobileSidebar}
             >
-              <svg className="w-4 h-4 text-orange-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 lg:w-4 lg:h-4 text-orange-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
               <span>全部文件</span>
@@ -370,11 +478,12 @@ export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
             <button
               onClick={handleRefresh}
               disabled={isFetching}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-orange-500 hover:bg-gray-100 transition-colors disabled:opacity-50"
+              className="p-2.5 lg:p-1.5 rounded-lg text-gray-400 hover:text-orange-500 hover:bg-gray-100 transition-colors disabled:opacity-50 min-w-[44px] min-h-[44px] lg:min-w-0 lg:min-h-0 flex items-center justify-center"
               title="刷新目录"
+              aria-label="刷新目录"
             >
               <svg 
-                className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} 
+                className={`w-5 h-5 lg:w-4 lg:h-4 ${isFetching ? 'animate-spin' : ''}`} 
                 fill="none" 
                 stroke="currentColor" 
                 viewBox="0 0 24 24"

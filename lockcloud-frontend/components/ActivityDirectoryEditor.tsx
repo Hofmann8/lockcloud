@@ -172,7 +172,7 @@ export function ActivityDirectoryEditor({
                 type="text"
                 value={newActivityName}
                 onChange={(e) => setNewActivityName(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                className="w-full px-3 py-2.5 text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent min-h-[44px]"
               />
             </div>
 
@@ -183,7 +183,7 @@ export function ActivityDirectoryEditor({
               <select
                 value={newActivityType}
                 onChange={(e) => setNewActivityType(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                className="w-full px-3 py-2.5 text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent min-h-[44px]"
               >
                 {activityTypes.map((type) => (
                   <option key={type.id} value={type.value}>

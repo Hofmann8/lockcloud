@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { Suspense, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
@@ -92,11 +92,15 @@ export default function DashboardLayout({
         <Navbar />
         
         <div className="flex flex-1 overflow-hidden relative">
-          <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onOpen={() => setSidebarOpen(true)} />
+          <Suspense fallback={<div className="w-64 bg-white border-r border-gray-200" />}>
+            <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onOpen={() => setSidebarOpen(true)} />
+          </Suspense>
           
           <main className="flex-1 overflow-y-auto bg-gray-50 custom-scrollbar">
             <div className="max-w-[1400px] mx-auto px-4 sm:px-6 md:px-8 lg:px-12 py-4 sm:py-6 md:py-8">
-              {children}
+              <Suspense fallback={<div className="animate-pulse bg-gray-200 h-96 rounded-lg" />}>
+                {children}
+              </Suspense>
             </div>
           </main>
         </div>

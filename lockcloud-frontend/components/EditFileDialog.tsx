@@ -9,6 +9,7 @@ import { searchTags } from '@/lib/api/tags';
 import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/Button';
+import { useIsMobile } from '@/lib/hooks/useMediaQuery';
 import toast from 'react-hot-toast';
 
 interface EditFileDialogProps {
@@ -147,24 +148,44 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
 
   const isPending = updateMutation.isPending || requestMutation.isPending;
   const activityTypeOptions = activityTypePresets || [];
+  const isMobile = useIsMobile();
 
   if (!isOpen) return null;
 
+  // Mobile: full screen from bottom, Desktop: centered modal
+  const containerStyles = isMobile
+    ? 'items-end p-0'
+    : 'items-center justify-center p-4';
+  
+  const modalStyles = isMobile
+    ? 'rounded-t-2xl rounded-b-none max-h-[95vh] inset-x-0 bottom-0'
+    : 'rounded-2xl max-w-lg max-h-[85vh]';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className={`fixed inset-0 z-50 flex ${containerStyles} bg-black/40 backdrop-blur-sm`} onClick={onClose}>
       <div 
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-xl border border-gray-200 w-full max-w-lg max-h-[85vh] overflow-hidden"
+        className={`bg-white shadow-xl border border-gray-200 w-full ${modalStyles} overflow-hidden flex flex-col`}
+        style={{
+          paddingBottom: isMobile ? 'env(safe-area-inset-bottom, 0px)' : undefined,
+        }}
       >
+        {/* Mobile drag handle */}
+        {isMobile && (
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-10 h-1 bg-gray-300 rounded-full" />
+          </div>
+        )}
+        
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-900">
+        <div className={`flex items-center justify-between border-b border-gray-100 shrink-0 ${isMobile ? 'px-4 py-3' : 'px-5 py-4'}`}>
+          <h2 className={`font-semibold text-gray-900 ${isMobile ? 'text-base' : 'text-base'}`}>
             {canDirectEdit ? '编辑文件' : '请求修改'}
           </h2>
           <button 
             onClick={onClose} 
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:bg-gray-200 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label="关闭"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -172,8 +193,8 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
           </button>
         </div>
 
-        {/* Content */}
-        <div className="px-5 py-4 overflow-y-auto max-h-[calc(85vh-130px)]">
+        {/* Content - scrollable area */}
+        <div className={`flex-1 overflow-y-auto ${isMobile ? 'px-4 py-3' : 'px-5 py-4'}`}>
           {/* File info banner */}
           <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl mb-5">
             <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
@@ -204,19 +225,19 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
                 type="text"
                 value={filename}
                 onChange={(e) => setFilename(e.target.value)}
-                className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all"
+                className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all min-h-[44px]"
               />
             </div>
 
-            {/* Date and Type row */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Date and Type row - Always stack on mobile for single column layout */}
+            <div className={`grid gap-3 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">活动日期</label>
                 <input
                   type="date"
                   value={activityDate}
                   onChange={(e) => setActivityDate(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all"
+                  className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all min-h-[44px]"
                 />
               </div>
               <div>
@@ -224,7 +245,7 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
                 <select
                   value={activityType}
                   onChange={(e) => setActivityType(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all"
+                  className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all min-h-[44px]"
                 >
                   <option value="">请选择</option>
                   {activityTypeOptions.map((option) => (
@@ -242,7 +263,7 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
                 value={activityName}
                 onChange={(e) => setActivityName(e.target.value)}
                 placeholder="例如：周末团建、新年晚会"
-                className="w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all placeholder:text-gray-400"
+                className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all placeholder:text-gray-400 min-h-[44px]"
               />
             </div>
 
@@ -272,12 +293,12 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (tagInput.trim()) handleAddTag(tagInput); } }}
                     onBlur={() => setTimeout(() => setShowTagSuggestions(false), 200)}
                     placeholder={freeTags.length === 0 ? "输入标签后按回车添加" : "添加更多标签..."}
-                    className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-300 transition-all placeholder:text-gray-400"
+                    className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-300 transition-all placeholder:text-gray-400 min-h-[44px]"
                   />
                   {showTagSuggestions && tagSuggestions && tagSuggestions.length > 0 && (
                     <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                       {tagSuggestions.map((tag) => (
-                        <button key={tag.id} type="button" onClick={() => handleAddTag(tag.name)} className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors">
+                        <button key={tag.id} type="button" onClick={() => handleAddTag(tag.name)} className="w-full px-3 py-3 text-left text-base hover:bg-gray-50 active:bg-gray-100 transition-colors min-h-[44px]">
                           {tag.name}
                         </button>
                       ))}
@@ -289,12 +310,12 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
           </form>
         </div>
 
-        {/* Footer */}
-        <div className="flex gap-3 px-5 py-4 border-t border-gray-100 bg-gray-50/50">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={isPending} className="flex-1">
+        {/* Footer - fixed at bottom */}
+        <div className={`flex gap-3 border-t border-gray-100 bg-gray-50/50 shrink-0 ${isMobile ? 'px-4 py-3' : 'px-5 py-4'}`}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={isPending} className={`flex-1 ${isMobile ? 'min-h-[48px]' : ''}`}>
             取消
           </Button>
-          <Button type="submit" form="edit-file-form" variant="primary" disabled={isPending} className="flex-1">
+          <Button type="submit" form="edit-file-form" variant="primary" disabled={isPending} className={`flex-1 ${isMobile ? 'min-h-[48px]' : ''}`}>
             {isPending ? '处理中...' : (canDirectEdit ? '保存修改' : '发送请求')}
           </Button>
         </div>

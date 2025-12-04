@@ -50,18 +50,6 @@ function FilePreviewPageContent({ params }: PageProps) {
     router.back();
   };
 
-  const handlePrevious = () => {
-    if (adjacentFiles?.previous) {
-      router.push(`/files/${adjacentFiles.previous.id}`);
-    }
-  };
-
-  const handleNext = () => {
-    if (adjacentFiles?.next) {
-      router.push(`/files/${adjacentFiles.next.id}`);
-    }
-  };
-
   // Update page title when file is loaded
   useEffect(() => {
     if (file) {
@@ -85,16 +73,16 @@ function FilePreviewPageContent({ params }: PageProps) {
 
       if (e.key === 'ArrowLeft' && adjacentFiles?.previous) {
         e.preventDefault();
-        handlePrevious();
+        router.push(`/files/${adjacentFiles.previous.id}`);
       } else if (e.key === 'ArrowRight' && adjacentFiles?.next) {
         e.preventDefault();
-        handleNext();
+        router.push(`/files/${adjacentFiles.next.id}`);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [adjacentFiles]);
+  }, [adjacentFiles, router]);
 
   // Invalid file ID
   if (isNaN(fileIdNum)) {
@@ -278,8 +266,8 @@ function FilePreviewPageContent({ params }: PageProps) {
 
   return (
     <div className="space-y-3 sm:space-y-4 lg:space-y-6">
-      {/* Header with navigation buttons */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3">
+      {/* Header with back button */}
+      <div className="flex items-center gap-2 sm:gap-3">
         <Button
           variant="ghost"
           size="md"
@@ -293,59 +281,6 @@ function FilePreviewPageContent({ params }: PageProps) {
         >
           <span className="hidden xs:inline">{zhCN.common.back}</span>
         </Button>
-
-        {/* Previous/Next Navigation - Redesigned */}
-        <div className="flex items-center gap-1.5 bg-white rounded-lg border border-black/10 p-1 shadow-sm">
-          <button
-            onClick={handlePrevious}
-            disabled={!adjacentFiles?.previous}
-            aria-label="上一个文件"
-            className={`
-              group relative flex items-center gap-1.5 px-3 py-1.5 rounded-md
-              transition-all duration-200
-              ${adjacentFiles?.previous 
-                ? 'hover:bg-accent-orange/10 text-primary-black cursor-pointer' 
-                : 'text-accent-gray/40 cursor-not-allowed'
-              }
-            `}
-          >
-            <svg 
-              className={`w-4 h-4 transition-transform ${adjacentFiles?.previous ? 'group-hover:-translate-x-0.5' : ''}`}
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            <span className="text-sm font-medium hidden sm:inline">上一条</span>
-          </button>
-
-          <div className="w-px h-6 bg-black/10" />
-
-          <button
-            onClick={handleNext}
-            disabled={!adjacentFiles?.next}
-            aria-label="下一个文件"
-            className={`
-              group relative flex items-center gap-1.5 px-3 py-1.5 rounded-md
-              transition-all duration-200
-              ${adjacentFiles?.next 
-                ? 'hover:bg-accent-orange/10 text-primary-black cursor-pointer' 
-                : 'text-accent-gray/40 cursor-not-allowed'
-              }
-            `}
-          >
-            <span className="text-sm font-medium hidden sm:inline">下一条</span>
-            <svg 
-              className={`w-4 h-4 transition-transform ${adjacentFiles?.next ? 'group-hover:translate-x-0.5' : ''}`}
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
       </div>
 
       {/* Path Breadcrumb Navigation */}
@@ -356,8 +291,12 @@ function FilePreviewPageContent({ params }: PageProps) {
         filename={file.original_filename || file.filename}
       />
       
-      {/* Preview Container with responsive layout */}
-      <PreviewContainer file={file} onFileUpdate={handleFileUpdate}>
+      {/* Preview Container with responsive layout and adjacent files navigation */}
+      <PreviewContainer 
+        file={file} 
+        onFileUpdate={handleFileUpdate}
+        adjacentFiles={adjacentFiles}
+      >
         <PreviewArea>
           {renderPreview()}
         </PreviewArea>
