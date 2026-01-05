@@ -288,7 +288,7 @@ function FilePreviewPageContent({ params }: PageProps) {
         activityType={file.activity_type}
         activityTypeDisplay={file.activity_type_display}
         activityDate={file.activity_date}
-        filename={file.original_filename || file.filename}
+        filename={file.filename || file.original_filename}
       />
       
       {/* Preview Container with responsive layout and adjacent files navigation */}

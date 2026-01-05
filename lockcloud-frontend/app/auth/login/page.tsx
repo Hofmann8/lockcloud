@@ -33,7 +33,7 @@ export default function LoginPage() {
       } catch (error) {
         console.error('Failed to fetch SSO config:', error);
         // Fallback to default SSO URL
-        setSsoUrl('https://auth.funk-and.love/login');
+        setSsoUrl('https://auth.funk-and.love');
       }
     };
     fetchSSOConfig();
@@ -48,7 +48,7 @@ export default function LoginPage() {
     );
     
     // Redirect to SSO login page
-    const loginUrl = ssoUrl || 'https://auth.funk-and.love/login';
+    const loginUrl = ssoUrl || 'https://auth.funk-and.love';
     window.location.href = `${loginUrl}?redirect_uri=${redirectUri}`;
   };
 

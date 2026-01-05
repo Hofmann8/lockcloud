@@ -1578,15 +1578,23 @@ def get_adjacent_files(file_id):
                 }
             }), 404
         
-        # Get previous and next files (simple navigation within directory)
-        previous_file = None
-        next_file = None
+        # Get previous 3 and next 3 files for navigation strip
+        previous_files = []
+        next_files = []
         
-        if current_index > 0:
-            previous_file = same_directory_files[current_index - 1]
+        # Get up to 3 previous files
+        for i in range(1, 4):
+            if current_index - i >= 0:
+                previous_files.insert(0, same_directory_files[current_index - i])
         
-        if current_index < len(same_directory_files) - 1:
-            next_file = same_directory_files[current_index + 1]
+        # Get up to 3 next files
+        for i in range(1, 4):
+            if current_index + i < len(same_directory_files):
+                next_files.append(same_directory_files[current_index + i])
+        
+        # For simple previous/next navigation (keyboard shortcuts)
+        previous_file = same_directory_files[current_index - 1] if current_index > 0 else None
+        next_file = same_directory_files[current_index + 1] if current_index < len(same_directory_files) - 1 else None
         
         # If at directory boundaries, try to find files in adjacent directories
         if previous_file is None or next_file is None:
@@ -1628,32 +1636,13 @@ def get_adjacent_files(file_id):
                         File.activity_date.desc(),
                         File.filename.asc()
                     ).first()
-                
-                # If still no adjacent files, wrap around
-                if previous_file is None and len(all_dirs) > 1:
-                    # Wrap to last directory's last file
-                    last_dir = all_dirs[-1]
-                    previous_file = File.query.filter(
-                        File.directory == last_dir
-                    ).order_by(
-                        File.activity_date.desc(),
-                        File.filename.desc()
-                    ).first()
-                
-                if next_file is None and len(all_dirs) > 1:
-                    # Wrap to first directory's first file
-                    first_dir = all_dirs[0]
-                    next_file = File.query.filter(
-                        File.directory == first_dir
-                    ).order_by(
-                        File.activity_date.desc(),
-                        File.filename.asc()
-                    ).first()
         
-        # Convert to dict
+        # Convert to dict - include previous_files and next_files arrays
         result = {
             'previous': previous_file.to_dict() if previous_file else None,
-            'next': next_file.to_dict() if next_file else None
+            'next': next_file.to_dict() if next_file else None,
+            'previous_files': [f.to_dict() for f in previous_files],
+            'next_files': [f.to_dict() for f in next_files]
         }
         
         return jsonify(result), 200

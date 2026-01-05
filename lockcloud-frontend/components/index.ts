@@ -21,6 +21,7 @@ export {
 // 视频播放器组件
 export { DanceVideoPlayer } from './DanceVideoPlayer';
 export { SimpleVideoPlayer } from './SimpleVideoPlayer';
+export { HLSVideoPlayer } from './HLSVideoPlayer';
 export { VideoPreviewSimple } from './VideoPreviewSimple';
 
 // 文件卡片组件

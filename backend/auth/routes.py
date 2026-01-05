@@ -160,9 +160,91 @@ def get_sso_config():
     
     return jsonify({
         'success': True,
-        'sso_login_url': f'{sso_frontend_url}/login',
+        'sso_login_url': sso_frontend_url,
         'sso_frontend_url': sso_frontend_url
     }), 200
+
+
+# ============================================================
+# Development Login (临时开发用，生产环境请关闭)
+# ============================================================
+
+@auth_bp.route('/dev/login', methods=['POST'])
+def dev_login():
+    """
+    开发环境临时登录接口
+    
+    关闭方法：
+    1. 在 .env 中设置 DEV_LOGIN_ENABLED=false
+    2. 或者删除这个路由
+    
+    POST /api/auth/dev/login
+    Body: { "email": "test@example.com" }
+    """
+    import os
+    from extensions import db
+    from auth.models import User
+    
+    # 检查是否启用开发登录
+    dev_login_enabled = os.environ.get('DEV_LOGIN_ENABLED', 'false').lower() == 'true'
+    
+    if not dev_login_enabled:
+        return jsonify({
+            'error': {
+                'code': 'DEV_LOGIN_DISABLED',
+                'message': '开发登录已禁用，请在 .env 中设置 DEV_LOGIN_ENABLED=true'
+            }
+        }), 403
+    
+    try:
+        data = request.get_json()
+        email = data.get('email', 'dev@localhost.com').lower()
+        name = data.get('name', email.split('@')[0])
+        
+        # 查找或创建用户
+        user = User.query.filter_by(email=email).first()
+        
+        if not user:
+            user = User(
+                email=email,
+                name=name,
+                created_at=datetime.utcnow(),
+                is_active=True
+            )
+            db.session.add(user)
+            current_app.logger.warning(f'[DEV] Created dev user: {email}')
+        
+        user.last_login = datetime.utcnow()
+        db.session.commit()
+        
+        # 生成 token
+        access_token = create_access_token(
+            identity=str(user.id),
+            additional_claims={
+                'email': user.email,
+                'name': user.name,
+                'dev_login': True
+            }
+        )
+        
+        current_app.logger.warning(f'[DEV] Dev login used: {email}')
+        
+        return jsonify({
+            'success': True,
+            'message': '[开发模式] 登录成功',
+            'token': access_token,
+            'user': user.to_dict()
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'[DEV] Dev login error: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '登录失败'
+            }
+        }), 500
 
 
 # ============================================================

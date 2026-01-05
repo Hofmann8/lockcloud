@@ -5,6 +5,15 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/Card';
 export default function ChangelogPage() {
   const updates = [
     {
+      date: '2025-12-15',
+      title: '🎬 实时流媒体播放优化',
+      items: [
+        '新增实时 M3U8 快速播放功能',
+        '优化视频播放器移动端响应式布局',
+      ],
+      type: 'feature',
+    },
+    {
       date: '2025-12-04',
       title: '🚀 系统重构后上线！',
       items: [

@@ -2,9 +2,9 @@
 
 import { useState, lazy, Suspense } from 'react';
 
-// 懒加载播放器
-const DanceVideoPlayer = lazy(() => 
-  import('./DanceVideoPlayer').then(mod => ({ default: mod.DanceVideoPlayer }))
+// 懒加载 HLS 播放器（支持多分辨率流媒体）
+const HLSVideoPlayer = lazy(() => 
+  import('./HLSVideoPlayer').then(mod => ({ default: mod.HLSVideoPlayer }))
 );
 
 interface VideoPreviewSimpleProps {
@@ -90,7 +90,7 @@ export function VideoPreviewSimple({
         }
       >
         <div className="w-full h-full flex items-center justify-center">
-          <DanceVideoPlayer
+          <HLSVideoPlayer
             key={retryKey}
             src={url}
             className="max-w-full max-h-full"
