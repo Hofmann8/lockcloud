@@ -58,6 +58,16 @@ export function InlineCalendar({
     onChange(`${year}-${month}-${dayStr}`);
   };
 
+  const handlePrevYear = () => {
+    if (disabled) return;
+    setCurrentMonth(new Date(currentMonth.getFullYear() - 1, currentMonth.getMonth()));
+  };
+
+  const handleNextYear = () => {
+    if (disabled) return;
+    setCurrentMonth(new Date(currentMonth.getFullYear() + 1, currentMonth.getMonth()));
+  };
+
   const handlePrevMonth = () => {
     if (disabled) return;
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
@@ -104,29 +114,55 @@ export function InlineCalendar({
     <div className={`bg-white rounded-lg border border-accent-gray/20 p-4 ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
       {/* Month navigation */}
       <div className="flex items-center justify-between mb-4">
-        <button
-          type="button"
-          onClick={handlePrevMonth}
-          className="p-1.5 hover:bg-accent-gray/10 rounded-lg transition-colors"
-        >
-          <svg className="w-5 h-5 text-primary-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handlePrevYear}
+            className="p-1.5 hover:bg-accent-gray/10 rounded-lg transition-colors"
+            title="上一年"
+          >
+            <svg className="w-5 h-5 text-primary-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7M18 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={handlePrevMonth}
+            className="p-1.5 hover:bg-accent-gray/10 rounded-lg transition-colors"
+            title="上一月"
+          >
+            <svg className="w-5 h-5 text-primary-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        </div>
 
         <div className="text-base font-semibold text-primary-black">
           {currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月
         </div>
 
-        <button
-          type="button"
-          onClick={handleNextMonth}
-          className="p-1.5 hover:bg-accent-gray/10 rounded-lg transition-colors"
-        >
-          <svg className="w-5 h-5 text-primary-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleNextMonth}
+            className="p-1.5 hover:bg-accent-gray/10 rounded-lg transition-colors"
+            title="下一月"
+          >
+            <svg className="w-5 h-5 text-primary-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={handleNextYear}
+            className="p-1.5 hover:bg-accent-gray/10 rounded-lg transition-colors"
+            title="下一年"
+          >
+            <svg className="w-5 h-5 text-primary-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M6 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Week days header */}

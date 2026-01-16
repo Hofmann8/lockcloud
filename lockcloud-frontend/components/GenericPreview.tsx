@@ -1,7 +1,9 @@
 'use client';
 
 import { File } from '@/types';
+import { useSignedUrl } from '@/lib/hooks/useSignedUrl';
 import { zhCN } from '@/locales/zh-CN';
+import toast from 'react-hot-toast';
 
 interface GenericPreviewProps {
   file: File;
@@ -22,6 +24,9 @@ interface GenericPreviewProps {
  * Requirements: 3.4
  */
 export function GenericPreview({ file }: GenericPreviewProps) {
+  // 获取原始文件的签名 URL 用于下载
+  const { url: downloadUrl } = useSignedUrl(file.id, 'original', true);
+
   // Format file size with null safety
   const formatSize = (bytes?: number): string => {
     if (!bytes || isNaN(bytes)) return '未知';
@@ -112,7 +117,11 @@ export function GenericPreview({ file }: GenericPreviewProps) {
   };
 
   const handleDownload = () => {
-    window.open(file.public_url, '_blank');
+    if (downloadUrl) {
+      window.open(downloadUrl, '_blank');
+    } else {
+      toast.error('下载链接获取中，请稍后重试');
+    }
   };
 
   return (

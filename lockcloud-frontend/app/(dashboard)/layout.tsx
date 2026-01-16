@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
-import { useUploadQueueStore } from '@/stores/uploadQueueStore';
+import { useTransferQueueStore } from '@/stores/transferQueueStore';
 import { Navbar } from '@/components/Navbar';
 import { Sidebar } from '@/components/Sidebar';
 import { Footer } from '@/components/Footer';
@@ -19,7 +19,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const queryClient = useQueryClient();
   const { isAuthenticated, isLoading, initialize } = useAuthStore();
-  const setOnTaskComplete = useUploadQueueStore(state => state.setOnTaskComplete);
+  const setOnTaskComplete = useTransferQueueStore(state => state.setOnUploadComplete);
   const [initialized, setInitialized] = useState(false);
   const [contentReady, setContentReady] = useState(false);
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);

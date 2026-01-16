@@ -20,7 +20,7 @@ export function Button({
   disabled,
   ...props
 }: ButtonProps) {
-  const baseStyles = 'btn-functional';
+  const baseStyles = 'btn-functional cursor-pointer';
   
   // Responsive sizing - mobile-first approach
   // Mobile: ensures 44x44px minimum touch target

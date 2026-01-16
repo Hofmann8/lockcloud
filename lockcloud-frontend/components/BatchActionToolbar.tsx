@@ -6,10 +6,12 @@ import { useBatchSelectionStore } from '@/stores/batchSelectionStore';
 import { useAuthStore } from '@/stores/authStore';
 import { Modal, ModalFooter } from './Modal';
 import { BatchEditDialog } from './BatchEditDialog';
+import { BatchDownloadDialog } from './BatchDownloadDialog';
 import * as filesApi from '@/lib/api/files';
 import * as requestsApi from '@/lib/api/requests';
 import * as tagsApi from '@/lib/api/tags';
 import { TagWithCount, File } from '@/types';
+import { useTransferQueueStore } from '@/stores/transferQueueStore';
 import toast from 'react-hot-toast';
 
 interface BatchActionToolbarProps {
@@ -30,6 +32,10 @@ export function BatchActionToolbar({ onOperationComplete, files = [] }: BatchAct
   const [isAddTagModalOpen, setIsAddTagModalOpen] = useState(false);
   const [isRemoveTagModalOpen, setIsRemoveTagModalOpen] = useState(false);
   const [isBatchEditOpen, setIsBatchEditOpen] = useState(false);
+  const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
+  
+  // Transfer queue
+  const addDownloadTask = useTransferQueueStore((state) => state.addDownloadTask);
   
   // Confirmation states
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -290,6 +296,27 @@ export function BatchActionToolbar({ onOperationComplete, files = [] }: BatchAct
     onOperationComplete?.();
   }, [clearSelection, onOperationComplete]);
 
+  // ========== DOWNLOAD ==========
+  const handleDownloadConfirm = useCallback(() => {
+    if (selectedFiles.length === 0) {
+      toast.error('没有选中的文件');
+      return;
+    }
+    
+    addDownloadTask({
+      files: selectedFiles.map(f => ({
+        fileId: f.id,
+        filename: f.filename || f.original_filename || `file_${f.id}`,
+        contentType: f.content_type || 'application/octet-stream',
+        size: f.size || 0,
+      })),
+    });
+    
+    setIsDownloadDialogOpen(false);
+    clearSelection();
+    toast.success(`已添加 ${selectedFiles.length} 个文件到下载队列`);
+  }, [selectedFiles, addDownloadTask, clearSelection]);
+
   if (selectionCount === 0) return null;
 
   // Confirmation Summary Component
@@ -353,7 +380,19 @@ export function BatchActionToolbar({ onOperationComplete, files = [] }: BatchAct
           <div className="hidden md:block w-px h-6 bg-primary-white/30" />
           
           {/* Action buttons - Mobile: grid layout with equal sizing, Desktop: flex row */}
-          <div className="grid grid-cols-4 md:flex md:flex-row items-center gap-2 sm:gap-3">
+          <div className="grid grid-cols-5 md:flex md:flex-row items-center gap-2 sm:gap-3">
+            {/* Download button */}
+            <button 
+              onClick={() => setIsDownloadDialogOpen(true)} 
+              className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 sm:px-3 md:px-3 py-2.5 sm:py-3 md:py-1.5 rounded-xl md:rounded-lg bg-accent-blue/80 hover:bg-accent-blue active:bg-accent-blue/90 transition-colors min-h-[52px] sm:min-h-[56px] md:min-h-[44px] touch-manipulation" 
+              title="批量下载" 
+              aria-label="批量下载"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span className="text-xs sm:text-sm md:text-sm font-medium">下载</span>
+            </button>
             {/* Edit button */}
             <button 
               onClick={() => setIsBatchEditOpen(true)} 
@@ -486,6 +525,14 @@ export function BatchActionToolbar({ onOperationComplete, files = [] }: BatchAct
 
       {/* Batch Edit Dialog */}
       <BatchEditDialog files={selectedFiles} isOpen={isBatchEditOpen} onClose={() => setIsBatchEditOpen(false)} onSuccess={handleBatchEditSuccess} />
+
+      {/* Batch Download Dialog */}
+      <BatchDownloadDialog 
+        isOpen={isDownloadDialogOpen} 
+        onClose={() => setIsDownloadDialogOpen(false)} 
+        onConfirm={handleDownloadConfirm}
+        files={selectedFiles}
+      />
     </>
   );
 }

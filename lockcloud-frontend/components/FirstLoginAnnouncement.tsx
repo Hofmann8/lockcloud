@@ -5,7 +5,7 @@ import { Modal } from './Modal';
 import { Button } from './Button';
 
 const ANNOUNCEMENT_KEY = 'lockcloud_announcement_seen';
-const ANNOUNCEMENT_VERSION = 'v0.9.1'; // 更新此版本号可以让所有用户重新看到公告
+const ANNOUNCEMENT_VERSION = 'v1.0.0'; // 更新此版本号可以让所有用户重新看到公告
 const NEVER_SHOW_KEY = 'lockcloud_announcement_never_show';
 
 export function FirstLoginAnnouncement() {
@@ -46,7 +46,7 @@ export function FirstLoginAnnouncement() {
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="🎉 系统更新 v0.9.1"
+      title="🎉 v1.0.0 正式版发布！"
       size="lg"
       closeOnBackdrop={false}
     >
@@ -71,19 +71,17 @@ export function FirstLoginAnnouncement() {
           
           <div className="text-sm text-gray-700 space-y-2 leading-relaxed">
             <div className="bg-white rounded-lg p-3 border border-blue-100">
-              <p className="font-medium text-blue-600 mb-1.5">🚀 系统重构后上线！</p>
+              <p className="font-medium text-blue-600 mb-1.5">🎉 v1.0.0 正式版发布！</p>
               <ul className="list-disc list-inside space-y-0.5 text-gray-600 ml-2 text-xs">
-                <li>彻底重写文件分类逻辑</li>
-                <li>添加自由标签系统</li>
-                <li>添加请求系统和权限管理</li>
-                <li>添加批量多选编辑功能</li>
-                <li>简化文件列表页的信息显示</li>
-                <li>新增图片和视频显示筛选功能</li>
-                <li>彻底重写移动端界面</li>
-                <li>分离原 LockAI 功能</li>
-                <li>登录页登录移至独立 SSO 服务</li>
+                <li>优化移动端下载功能</li>
+                <li>新增批量下载和打包下载</li>
+                <li>新增用户头像功能</li>
+                <li>优化图片加载体验</li>
+                <li>优化 HLS 流媒体算法</li>
+                <li>存储策略升级：私有读写更安全</li>
+                <li>新增 ThumbHash 媒体占位图，加载更流畅</li>
+                <li>优化整体 UI 质感</li>
               </ul>
-              <p className="mt-2 text-xs text-gray-500">感谢 水母老师、噗噗老师、小雪老师、dragon老师 的建议和 issue</p>
             </div>
           </div>
         </div>
@@ -112,7 +110,7 @@ export function FirstLoginAnnouncement() {
         {/* 签名和日期 */}
         <div className="text-right text-xs text-gray-500 pt-2 border-t border-gray-200">
           <p className="font-medium text-blue-500">Hofmann</p>
-          <p>2025 年 12 月 4 日</p>
+          <p>2026 年 1 月 7 日</p>
         </div>
 
         {/* 确认按钮 */}

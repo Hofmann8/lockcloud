@@ -430,6 +430,88 @@ class S3Service:
             else:
                 current_app.logger.error(f'Failed to get metadata for {key}: {str(e)}')
                 raise
+    
+    def generate_signed_url(
+        self,
+        key: str,
+        expiration: int = 3600,
+        style: Optional[str] = None
+    ) -> str:
+        """
+        生成 S3 预签名 URL（支持缤纷云样式规则）
+        
+        通过在 key 后面加样式后缀来调用预配置的样式规则：
+        - 图片样式: !style=stylename (如 image.jpg!style=thumbmobile)
+        - HLS 转码: !style:medium/auto_medium.m3u8 (如 video.mp4!style:medium/auto_medium.m3u8)
+        
+        Args:
+            key: S3 对象 key (文件路径)
+            expiration: URL 有效期（秒），默认 3600 秒（1小时）
+            style: 样式规则名称或 HLS 路径
+                   - 普通样式如 'thumbmobile' 会转为 !style=thumbmobile
+                   - HLS 路径如 'hls:medium/auto_medium.m3u8' 会转为 !style:medium/auto_medium.m3u8
+        
+        Returns:
+            预签名访问 URL
+        """
+        bucket = self.get_bucket_name()
+        
+        if style and style != 'original':
+            if style.startswith('hls:'):
+                # HLS 转码格式：!style:medium/auto_medium.m3u8
+                hls_path = style[4:]  # 移除 'hls:' 前缀
+                signed_key = f"{key}!style:{hls_path}"
+            else:
+                # 普通图片样式：!style=stylename
+                signed_key = f"{key}!style={style}"
+        else:
+            signed_key = key
+        
+        try:
+            url = self.client.generate_presigned_url(
+                ClientMethod='get_object',
+                Params={
+                    'Bucket': bucket,
+                    'Key': signed_key
+                },
+                ExpiresIn=expiration
+            )
+            
+            # 缤纷云需要 !style: 和 !style= 不被 URL 编码
+            # boto3 会把特殊字符编码，需要解码回来
+            # 无论是否有 style 参数，都需要检查并解码
+            from urllib.parse import unquote
+            # 解码 URL 中的 !style 部分
+            # %21style%3A -> !style:
+            # %21style%3D -> !style=
+            url = url.replace('%21style%3A', '!style:')
+            url = url.replace('%21style%3D', '!style=')
+            # 也处理波浪号编码（用于 ts 分片文件名）
+            url = url.replace('%7E', '~')
+            
+            return url
+        except ClientError as e:
+            current_app.logger.error(f'Failed to generate presigned URL: {str(e)}')
+            raise
+    
+    def generate_signed_url_batch(
+        self,
+        keys: List[str],
+        expiration: int = 3600,
+        style: Optional[str] = None
+    ) -> Dict[str, str]:
+        """
+        批量生成签名 URL
+        
+        Args:
+            keys: S3 对象 key 列表
+            expiration: URL 有效期（秒）
+            style: 图片处理样式参数
+        
+        Returns:
+            字典 {key: signed_url}
+        """
+        return {key: self.generate_signed_url(key, expiration, style) for key in keys}
 
 
 # Global S3 service instance

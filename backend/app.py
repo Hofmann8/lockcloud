@@ -178,6 +178,10 @@ def create_app(config_name=None):
             'service': 'lockcloud-backend'
         })
     
+    # 注册 CLI 命令
+    from scripts.preheat_videos import register_commands
+    register_commands(app)
+    
     return app
 
 

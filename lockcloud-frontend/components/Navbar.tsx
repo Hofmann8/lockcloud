@@ -1,20 +1,24 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { getPendingCount } from '@/lib/api/requests';
 import { useIsMobile, useIsTablet } from '@/lib/hooks/useMediaQuery';
+import { useTransferQueueStore } from '@/stores/transferQueueStore';
+import { UserAvatar } from './UserAvatar';
+import { UserMenu } from './UserMenu';
+import { AvatarUploadDialog } from './AvatarUploadDialog';
 import toast from 'react-hot-toast';
 
 export function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showAvatarDialog, setShowAvatarDialog] = useState(false);
   
   // Responsive hooks
   const isMobile = useIsMobile();
@@ -75,6 +79,45 @@ export function Navbar() {
     refetchInterval: 60000, // Refresh every minute
   });
 
+  // Transfer queue state
+  const tasks = useTransferQueueStore((state) => state.tasks);
+  const pausedTasks = useTransferQueueStore((state) => state.pausedTasks);
+
+  const { uploadingCount, downloadingCount, totalActive } = useMemo(() => {
+    let uploading = 0;
+    let downloading = 0;
+    tasks.forEach((task) => {
+      const isActive = task.status === 'processing' || (task.status === 'pending' && !pausedTasks.has(task.id));
+      if (isActive) {
+        if (task.type === 'upload') uploading++;
+        else downloading++;
+      }
+    });
+    return { uploadingCount: uploading, downloadingCount: downloading, totalActive: uploading + downloading };
+  }, [tasks, pausedTasks]);
+
+  // Carousel for transfer label - cycle through: 传输 -> 上传 X -> 下载 X -> 传输...
+  const [transferLabelIndex, setTransferLabelIndex] = useState(0);
+  
+  // Build labels array based on active tasks
+  const transferLabels = useMemo(() => {
+    const labels: { text: string; color?: string }[] = [{ text: '传输' }];
+    if (uploadingCount > 0) labels.push({ text: `上传 ${uploadingCount}`, color: 'text-accent-blue' });
+    if (downloadingCount > 0) labels.push({ text: `下载 ${downloadingCount}`, color: 'text-accent-green' });
+    return labels;
+  }, [uploadingCount, downloadingCount]);
+
+  useEffect(() => {
+    if (transferLabels.length > 1) {
+      const interval = setInterval(() => {
+        setTransferLabelIndex((prev) => (prev + 1) % transferLabels.length);
+      }, 2000);
+      return () => clearInterval(interval);
+    } else {
+      setTransferLabelIndex(0);
+    }
+  }, [transferLabels.length]);
+
   const isActive = (path: string) => {
     if (path === '/admin') {
       return pathname?.startsWith('/admin');
@@ -85,7 +128,7 @@ export function Navbar() {
   // Only show admin link for admin users
   const navLinks = [
     { href: '/files', label: '文件' },
-    { href: '/upload', label: '上传' },
+    { href: '/upload', label: '传输' },
     { href: '/requests', label: '请求', badge: pendingCount || undefined },
     { href: '/changelog', label: '更新日志' },
     ...(user?.is_admin ? [{ href: '/admin', label: '管理' }] : []),
@@ -124,9 +167,35 @@ export function Navbar() {
                   href={link.href}
                   className="relative text-base font-medium text-black transition-colors group py-1"
                 >
-                  <span className={`${isActive(link.href) ? 'text-orange-500' : 'group-hover:text-orange-500'}`}>
-                    {link.label}
-                  </span>
+                  {/* Special handling for Transfer link */}
+                  {link.href === '/upload' ? (
+                    <span className={`flex items-center gap-1.5 ${isActive(link.href) ? 'text-orange-500' : 'group-hover:text-orange-500'}`}>
+                      {/* Pulse indicator - only show when active */}
+                      {totalActive > 0 && (
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-blue opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-blue"></span>
+                        </span>
+                      )}
+                      {/* Fixed width container with fade animation */}
+                      <span className="relative w-[3.5em] h-6 flex items-center justify-center overflow-hidden">
+                        {transferLabels.map((label, idx) => (
+                          <span
+                            key={label.text}
+                            className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
+                              label.color || (isActive(link.href) ? 'text-orange-500' : '')
+                            } ${idx === transferLabelIndex ? 'opacity-100' : 'opacity-0'}`}
+                          >
+                            {label.text}
+                          </span>
+                        ))}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className={`${isActive(link.href) ? 'text-orange-500' : 'group-hover:text-orange-500'}`}>
+                      {link.label}
+                    </span>
+                  )}
                   {/* Badge for pending count */}
                   {'badge' in link && link.badge && link.badge > 0 && (
                     <span className="absolute -top-1 -right-3 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-xs font-bold text-white bg-red-500 rounded-full">
@@ -144,76 +213,50 @@ export function Navbar() {
               ))}
 
               {/* User Menu (Desktop & Tablet) */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center space-x-2 px-3 lg:px-4 py-2 rounded-lg border border-black/20 hover:bg-gray-50 transition-colors min-h-[44px]"
-                  aria-expanded={showUserMenu}
-                  aria-haspopup="true"
-                >
-                  <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold">
-                    {user?.name?.charAt(0).toUpperCase() || 'U'}
-                  </div>
-                  <span className="text-sm font-medium text-black hidden lg:inline">
-                    {user?.name || '用户'}
-                  </span>
-                  <svg
-                    className={`w-4 h-4 transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                {/* Dropdown Menu */}
-                {showUserMenu && (
-                  <div 
-                    className="absolute right-0 mt-2 w-48 bg-white border border-black/10 rounded-lg overflow-hidden animate-fade-in-down"
-                    style={{
-                      boxShadow: 'var(--shadow-lg)',
-                      animation: 'fadeInDown 200ms cubic-bezier(0.4, 0, 0.2, 1)'
-                    }}
-                  >
-                    <div className="py-2">
-                      <div className="px-4 py-2 border-b border-black/10">
-                        <p className="text-sm font-medium text-black">{user?.name}</p>
-                        <p className="text-xs text-gray-600 truncate">{user?.email}</p>
-                      </div>
-                      <button
-                        onClick={handleLogout}
-                        className="w-full text-left px-4 py-3 text-sm text-black hover:bg-red-50 hover:text-red-600 transition-colors min-h-[44px]"
-                      >
-                        退出登录
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <UserMenu 
+                user={user} 
+                onLogout={handleLogout}
+                onChangeAvatar={() => setShowAvatarDialog(true)}
+              />
             </div>
 
             {/* Mobile Menu Button - Hamburger */}
-            <button
-              onClick={handleMobileMenuToggle}
-              className="md:hidden p-3 rounded-lg hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-              aria-label={showMobileMenu ? '关闭菜单' : '打开菜单'}
-              aria-expanded={showMobileMenu}
-              aria-controls="mobile-menu"
-            >
-              <svg
-                className="w-6 h-6 transition-transform duration-200"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+            <div className="md:hidden flex items-center gap-2">
+              {/* Mobile Transfer Status - compact version */}
+              {totalActive > 0 && (
+                <Link
+                  href="/upload"
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-accent-blue/10"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-blue opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-blue"></span>
+                  </span>
+                  <span className="text-xs font-medium text-accent-blue">{totalActive}</span>
+                </Link>
+              )}
+              
+              <button
+                onClick={handleMobileMenuToggle}
+                className="p-3 rounded-lg hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                aria-label={showMobileMenu ? '关闭菜单' : '打开菜单'}
+                aria-expanded={showMobileMenu}
+                aria-controls="mobile-menu"
               >
-                {showMobileMenu ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                )}
-              </svg>
-            </button>
+                <svg
+                  className="w-6 h-6 transition-transform duration-200"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  {showMobileMenu ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  )}
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -287,7 +330,31 @@ export function Navbar() {
                         : 'text-black hover:bg-gray-50 active:bg-gray-100'
                     }`}
                   >
-                    <span>{link.label}</span>
+                    {/* Special handling for Transfer link in mobile menu */}
+                    {link.href === '/upload' ? (
+                      <span className="flex items-center gap-2">
+                        {totalActive > 0 && (
+                          <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-blue opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-blue"></span>
+                          </span>
+                        )}
+                        <span className="relative w-[4em] h-7 flex items-center overflow-hidden">
+                          {transferLabels.map((label, idx) => (
+                            <span
+                              key={label.text}
+                              className={`absolute inset-0 flex items-center transition-opacity duration-300 ${
+                                label.color || ''
+                              } ${idx === transferLabelIndex ? 'opacity-100' : 'opacity-0'}`}
+                            >
+                              {label.text}
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                    ) : (
+                      <span>{link.label}</span>
+                    )}
                     {'badge' in link && link.badge && link.badge > 0 && (
                       <span className="min-w-[24px] h-[24px] flex items-center justify-center px-2 text-sm font-bold text-white bg-red-500 rounded-full">
                         {link.badge > 99 ? '99+' : link.badge}
@@ -305,14 +372,24 @@ export function Navbar() {
             style={{ paddingBottom: 'calc(var(--safe-area-inset-bottom) + 1rem)' }}
           >
             <div className="flex items-center space-x-3 px-4 py-3 bg-gray-50 rounded-xl">
-              <div className="w-12 h-12 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-lg">
-                {user?.name?.charAt(0).toUpperCase() || 'U'}
-              </div>
+              <UserAvatar user={user} size="xl" className="!w-12 !h-12" />
               <div className="flex-1 min-w-0">
                 <p className="text-base font-medium text-black truncate">{user?.name}</p>
                 <p className="text-sm text-gray-600 truncate">{user?.email}</p>
               </div>
             </div>
+            <button
+              onClick={() => {
+                setShowMobileMenu(false);
+                setShowAvatarDialog(true);
+              }}
+              className="w-full flex items-center justify-center px-4 py-4 mt-3 text-base font-medium text-black bg-white border border-gray-200 hover:bg-gray-50 active:bg-gray-100 rounded-xl transition-colors min-h-[56px]"
+            >
+              <svg className="w-5 h-5 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              更换头像
+            </button>
             <button
               onClick={handleLogout}
               className="w-full flex items-center justify-center px-4 py-4 mt-3 text-base font-medium text-red-600 bg-red-50 hover:bg-red-100 active:bg-red-200 rounded-xl transition-colors min-h-[56px]"
@@ -325,6 +402,12 @@ export function Navbar() {
           </div>
         </div>
       </div>
+
+      {/* Avatar Upload Dialog */}
+      <AvatarUploadDialog 
+        isOpen={showAvatarDialog} 
+        onClose={() => setShowAvatarDialog(false)} 
+      />
     </>
   );
 }

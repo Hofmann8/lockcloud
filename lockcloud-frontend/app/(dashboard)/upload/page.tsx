@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import { MultiFileUploadZone } from '@/components/MultiFileUploadZone';
 import { MultiFileUploadForm } from '@/components/MultiFileUploadForm';
-import { UploadQueue } from '@/components/UploadQueue';
+import { TransferQueue } from '@/components/TransferQueue';
 import { MobileMenuButton } from '@/components/MobileMenuButton';
-import { zhCN } from '@/locales/zh-CN';
 
 interface FileWithCustomName {
   id: string;
@@ -35,7 +34,7 @@ export default function UploadPage() {
         <div className="flex items-center gap-3">
           <MobileMenuButton />
           <h1 className="text-2xl md:text-3xl font-bold text-primary-black">
-            {zhCN.files.upload}
+            传输
           </h1>
         </div>
       </div>
@@ -64,13 +63,13 @@ export default function UploadPage() {
           )}
         </div>
 
-        {/* Right: Upload Queue (1/3 width on desktop) */}
+        {/* Right: Transfer Queue (1/3 width on desktop) */}
         {/* On mobile, show at bottom with limited height */}
         <div className="lg:col-span-1">
           <div className="lg:sticky lg:top-6">
             {/* Mobile: limit height to prevent taking too much space */}
             <div className="max-h-[300px] md:max-h-none overflow-hidden">
-              <UploadQueue />
+              <TransferQueue />
             </div>
           </div>
         </div>

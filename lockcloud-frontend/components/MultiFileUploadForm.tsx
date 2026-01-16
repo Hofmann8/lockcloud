@@ -7,7 +7,7 @@ import { useActivityTypes } from '@/lib/hooks/useTagPresets';
 import { checkFilenames, getActivityNamesByDate, ActivityNameInfo } from '@/lib/api/files';
 import { showToast } from '@/lib/utils/toast';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUploadQueueStore } from '@/stores/uploadQueueStore';
+import { useTransferQueueStore } from '@/stores/transferQueueStore';
 
 interface FileWithCustomName {
   id: string;
@@ -36,7 +36,7 @@ export function MultiFileUploadForm({
   onExistingFilesChange 
 }: MultiFileUploadFormProps) {
   const queryClient = useQueryClient();
-  const addTask = useUploadQueueStore(state => state.addTask);
+  const addTask = useTransferQueueStore(state => state.addUploadTask);
   
   const getCurrentDate = () => {
     const today = new Date();
@@ -132,7 +132,7 @@ export function MultiFileUploadForm({
   };
 
   const checkQueueDuplicates = (): { hasDuplicates: boolean; duplicateFiles: string[] } => {
-    const queueTasks = useUploadQueueStore.getState().tasks;
+    const queueTasks = useTransferQueueStore.getState().tasks.filter(t => t.type === 'upload') as import('@/types/transfer-queue').UploadTask[];
     
     const currentFilenames = filesWithNames.map(item => {
       const customName = item.customFilename.trim();

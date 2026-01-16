@@ -4,6 +4,8 @@ export interface User {
   email: string;
   name: string;
   role: string;
+  avatar_key?: string;
+  avatar_url?: string;
   created_at: string;
   last_login?: string;
   is_active: boolean;
@@ -39,6 +41,7 @@ export interface File {
   public_url: string;
   uploader?: User;
   free_tags?: FreeTag[];
+  thumbhash?: string;
 }
 
 // Auth types (SSO-based)

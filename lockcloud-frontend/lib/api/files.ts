@@ -144,14 +144,21 @@ export const checkFilenames = async (data: {
 
 /**
  * Get adjacent files (previous and next) in the same directory
+ * @param fileId Current file ID
+ * @param limit Number of files to return on each side (default: 3, max: 20)
  */
 export const getAdjacentFiles = async (
-  fileId: number
+  fileId: number,
+  limit: number = 3
 ): Promise<{
   previous: File | null;
   next: File | null;
+  previous_files?: File[];
+  next_files?: File[];
 }> => {
-  const response = await apiClient.get(`/api/files/${fileId}/adjacent`);
+  const response = await apiClient.get(`/api/files/${fileId}/adjacent`, {
+    params: { limit }
+  });
   return response.data;
 };
 
@@ -330,5 +337,100 @@ export const updateActivityDirectory = async (data: {
   new_activity_type: string;
 }> => {
   const response = await apiClient.patch('/api/files/activity-directory', data);
+  return response.data;
+};
+
+
+// ============================================
+// 签名 URL 相关 API（私有桶访问）
+// ============================================
+
+/**
+ * Style 预设类型（样式名称只能包含字母和数字）
+ */
+export type StylePreset = 
+  | 'thumbmobile'
+  | 'thumbdesktop'
+  | 'thumbnav'
+  | 'thumbnavdesktop'
+  | 'previewmobile'
+  | 'previewtablet'
+  | 'previewdesktop'
+  | 'videothumbmobile'
+  | 'videothumbdesktop'
+  | 'videothumbnav'
+  | 'videothumbnavdesktop'
+  | 'videopreload'
+  | 'original';
+
+/**
+ * 获取单个文件的签名 URL
+ * @param fileId 文件 ID
+ * @param style 样式预设名称
+ * @param expiration URL 有效期（秒）
+ */
+export const getSignedUrl = async (
+  fileId: number,
+  style?: StylePreset,
+  expiration?: number
+): Promise<{ signed_url: string; expires_in: number }> => {
+  const params: Record<string, string | number> = {};
+  if (style) params.style = style;
+  if (expiration) params.expiration = expiration;
+  
+  const response = await apiClient.get(`/api/files/signed-url/${fileId}`, { params });
+  return response.data;
+};
+
+/**
+ * 批量获取文件的签名 URL
+ * @param fileIds 文件 ID 数组（最多 100 个）
+ * @param style 样式预设名称
+ * @param expiration URL 有效期（秒）
+ */
+export const getSignedUrlsBatch = async (
+  fileIds: number[],
+  style?: StylePreset,
+  expiration?: number
+): Promise<{
+  urls: Record<number, { signed_url: string; s3_key: string }>;
+  expires_in: number;
+}> => {
+  const response = await apiClient.post('/api/files/signed-urls', {
+    file_ids: fileIds,
+    style,
+    expiration,
+  });
+  return response.data;
+};
+
+// ============================================
+// HLS 清晰度相关 API
+// ============================================
+
+/**
+ * HLS 清晰度信息
+ */
+export interface HLSQuality {
+  height: number;
+  width?: number;
+  label: string;
+  playlist: string;
+  bandwidth?: number;
+}
+
+/**
+ * 获取视频的 HLS 可用清晰度列表
+ * @param fileId 文件 ID
+ */
+export const getHLSQualities = async (
+  fileId: number
+): Promise<{
+  success: boolean;
+  qualities: HLSQuality[];
+  default_quality: number;
+  from_manifest: boolean;
+}> => {
+  const response = await apiClient.get(`/api/files/hls-qualities/${fileId}`);
   return response.data;
 };

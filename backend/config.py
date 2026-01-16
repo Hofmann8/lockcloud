@@ -26,12 +26,21 @@ class Config:
     MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', 'True').lower() == 'true'
     MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER', 'noreply@lockcloud.com')
     
-    # S3
+    # S3 - 主存储桶（文件系统）
     S3_ENDPOINT = os.environ.get('S3_ENDPOINT', 'https://s3.bitiful.net')
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
     S3_BUCKET = os.environ.get('S3_BUCKET', 'funkandlove-cloud')
     AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+    
+    # S3 - 公共资源桶（头像、备份等）
+    S3_PUBLIC_BUCKET = os.environ.get('S3_PUBLIC_BUCKET', 'funkandlove-cloud-public')
+    S3_PUBLIC_ENDPOINT = os.environ.get('S3_PUBLIC_ENDPOINT', 'https://funkandlove-cloud-public.s3.bitiful.net')
+    
+    # 缤纷云 CDN 高级防盗链配置
+    S3_CDN_DOMAIN = os.environ.get('S3_CDN_DOMAIN')  # CDN 域名，如 https://cdn.example.com
+    S3_TOKEN_KEY = os.environ.get('S3_TOKEN_KEY')  # 缤纷云后台设置的鉴权 Key
+    S3_URL_EXPIRATION = int(os.environ.get('S3_URL_EXPIRATION', 3600))  # 签名 URL 有效期（秒）
     
     # CORS
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(',')

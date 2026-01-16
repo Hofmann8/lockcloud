@@ -61,6 +61,7 @@ class File(db.Model):
     activity_name = db.Column(db.String(200), nullable=True, index=True)  # Activity name (e.g., "周末特训")
     instructor = db.Column(db.String(100), nullable=True, index=True)  # Instructor name
     is_legacy = db.Column(db.Boolean, default=False, nullable=False)  # Legacy naming system flag
+    thumbhash = db.Column(db.String(50), nullable=True)  # ThumbHash for blur placeholder
     
     # Relationships
     logs = db.relationship('FileLog', backref='file', lazy='dynamic')
@@ -101,14 +102,16 @@ class File(db.Model):
             'activity_type': self.activity_type,
             'activity_name': self.activity_name,
             'instructor': self.instructor,
-            'is_legacy': self.is_legacy
+            'is_legacy': self.is_legacy,
+            'thumbhash': self.thumbhash
         }
         
         if include_uploader and self.uploader:
             data['uploader'] = {
                 'id': self.uploader.id,
                 'name': self.uploader.name,
-                'email': self.uploader.email
+                'email': self.uploader.email,
+                'avatar_key': self.uploader.avatar_key
             }
         
         if include_tags:

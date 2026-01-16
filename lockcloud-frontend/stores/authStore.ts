@@ -86,30 +86,28 @@ export const useAuthStore = create<AuthState>()(
           
           if (token && user) {
             // We have persisted auth data, set as authenticated immediately
-            // Don't set isLoading to true - let the UI render immediately
             set({ 
               token, 
               user,
               isAuthenticated: true, 
-              isLoading: false  // Changed: allow immediate rendering
+              isLoading: false
             });
             
-            // Verify token is still valid in background (silently)
+            // Verify token is still valid in background and get fresh user data
             try {
               const freshUser = await authApi.getMe();
-              set({
+              set((state) => ({
+                ...state,
                 user: freshUser,
                 token,
                 isAuthenticated: true,
                 isLoading: false,
-              });
+              }));
             } catch (error) {
-              // Token is invalid, clear it
               console.error('Token validation failed:', error);
               get().logout();
             }
           } else {
-            // No token found, set loading to false
             set({ isLoading: false, isAuthenticated: false });
           }
         }

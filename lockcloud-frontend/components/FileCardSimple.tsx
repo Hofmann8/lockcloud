@@ -1,16 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { useFileStore } from '@/stores/fileStore';
+import { useTransferQueueStore } from '@/stores/transferQueueStore';
 import { useDeviceDetect } from '@/lib/hooks/useDeviceDetect';
+import { useSignedUrlFromContext } from '@/contexts/SignedUrlContext';
 import { Card } from './Card';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { EditFileDialog } from './EditFileDialog';
+import { UserAvatar } from './UserAvatar';
 import { zhCN } from '@/locales/zh-CN';
 import toast from 'react-hot-toast';
+import { thumbHashToDataURL } from 'thumbhash';
 
 interface FileCardSimpleProps {
   file: File;
@@ -20,13 +24,7 @@ interface FileCardSimpleProps {
 /**
  * FileCardSimple - 简化版文件卡片
  * 
- * 只显示静态缩略图，不进行hover预览
- * 大幅降低流量消耗
- * 
- * 移动端适配 (Requirements: 3.3, 3.4):
- * - 调整卡片内部元素间距
- * - 优化字体大小和行高
- * - 移动端显示操作按钮（替代 hover 显示）
+ * 从 SignedUrlContext 获取签名 URL（由 FileGrid 批量获取）
  */
 export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
   const { isMobile, isTouchDevice } = useDeviceDetect();
@@ -34,13 +32,34 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   
   const user = useAuthStore((state) => state.user);
   const deleteFile = useFileStore((state) => state.deleteFile);
+  const addDownloadTask = useTransferQueueStore((state) => state.addDownloadTask);
 
   const isOwner = user?.id === file.uploader_id;
   const isImage = file.content_type.startsWith('image/');
   const isVideo = file.content_type.startsWith('video/');
+
+  // 从 context 获取签名 URL（已由 FileGrid 批量获取）
+  const { url: thumbnailUrl, isLoading: isUrlLoading } = useSignedUrlFromContext(file.id);
+
+  // 解码 thumbhash 生成占位图 data URL
+  const placeholderUrl = useMemo(() => {
+    if (!file.thumbhash) return null;
+    try {
+      const binary = atob(file.thumbhash);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return thumbHashToDataURL(bytes);
+    } catch (e) {
+      console.warn('Failed to decode thumbhash:', e);
+      return null;
+    }
+  }, [file.thumbhash]);
 
   // 格式化文件大小
   const formatSize = (bytes: number): string => {
@@ -65,28 +84,20 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
     return '📁';
   };
 
-  // 获取缩略图 URL - 使用缤纷云图片/视频处理参数
-  const getThumbnailUrl = (): string | null => {
-    if (!file.s3_key) return null;
-    
-    const baseUrl = process.env.NEXT_PUBLIC_S3_BASE_URL || 'https://funkandlove-cloud2.s3.bitiful.net';
-    const width = isMobile ? 300 : 400;
-    
-    // 视频：使用缤纷云视频关键帧提取服务（frame=毫秒）
-    if (isVideo) {
-      return `${baseUrl}/${file.s3_key}?frame=100&w=${width}`;
-    }
-    
-    // 图片：根据设备类型使用不同尺寸
-    if (isImage) {
-      return `${baseUrl}/${file.s3_key}?w=${width}`;
-    }
-    
-    return null;
-  };
-
   const handleDeleteClick = () => {
     setIsDeleteModalOpen(true);
+  };
+
+  const handleDownload = () => {
+    addDownloadTask({
+      files: [{
+        fileId: file.id,
+        filename: file.original_filename || file.filename,
+        size: file.size || 0,
+        contentType: file.content_type,
+      }],
+    });
+    toast.success('已添加到下载队列');
   };
 
   const handleDeleteConfirm = async () => {
@@ -121,27 +132,48 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
   };
 
   const handleCardClick = () => {
+    // 先缓存文件信息，让详情页可以立即显示
+    useFileStore.getState().setSelectedFile(file);
     router.push(`/files/${file.id}`);
   };
-
-  const thumbnailUrl = getThumbnailUrl();
 
   return (
     <>
       <Card padding="none" hoverable className="overflow-hidden group">
         {/* 缩略图/图标 - 移动端高度稍小 */}
         <div
-          className="relative h-40 sm:h-44 md:h-48 bg-accent-gray/10 flex items-center justify-center cursor-pointer overflow-hidden rounded-t-xl"
+          className="relative h-40 sm:h-44 md:h-48 bg-accent-gray/10 flex items-center justify-center cursor-pointer overflow-hidden"
           onClick={handleCardClick}
         >
-          {thumbnailUrl ? (
-            // 图片/视频缩略图（视频使用缤纷云关键帧提取）
-            <img
-              src={thumbnailUrl}
-              alt={file.filename}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-              loading="lazy"
-            />
+          {(isImage || isVideo) ? (
+            // 图片/视频缩略图
+            <>
+              {/* 占位图：优先使用 ThumbHash 模糊图，否则显示 Skeleton */}
+              {(!imageLoaded || isUrlLoading) && (
+                placeholderUrl ? (
+                  <img
+                    src={placeholderUrl}
+                    alt=""
+                    className="absolute inset-0 w-full h-full object-cover"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <div className="absolute inset-0 skeleton" aria-hidden="true" />
+                )
+              )}
+              {/* 实际缩略图 */}
+              {thumbnailUrl && (
+                <img
+                  src={thumbnailUrl}
+                  alt={file.filename}
+                  className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 ${
+                    imageLoaded && !isUrlLoading ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  loading="lazy"
+                  onLoad={() => setImageLoaded(true)}
+                />
+              )}
+            </>
           ) : (
             // 文件图标（文档等）
             <span className="text-6xl">{getFileIcon()}</span>
@@ -224,6 +256,20 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
             <div className="flex items-center gap-0.5 sm:gap-1">
               {/* 操作图标 - 移动端/触摸设备始终显示，桌面端 hover 时显示 */}
               <button
+                onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                className={[
+                  'p-1.5 sm:p-1 text-gray-400 hover:text-accent-blue hover:bg-blue-50 rounded transition-all',
+                  isMobile || isTouchDevice 
+                    ? 'opacity-100 min-w-[32px] min-h-[32px] sm:min-w-0 sm:min-h-0 flex items-center justify-center' 
+                    : 'opacity-0 group-hover:opacity-100'
+                ].join(' ')}
+                title="下载"
+              >
+                <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </button>
+              <button
                 onClick={(e) => { e.stopPropagation(); setIsEditDialogOpen(true); }}
                 className={[
                   'p-1.5 sm:p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded transition-all',
@@ -256,6 +302,7 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
               </button>
+              <UserAvatar user={file.uploader} size="xs" />
               <span className="ml-0.5 sm:ml-1 truncate max-w-[60px] sm:max-w-none">{file.uploader?.name || '-'}</span>
             </div>
           </div>

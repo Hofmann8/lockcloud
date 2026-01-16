@@ -17,3 +17,9 @@ limiter = Limiter(
     default_limits=["100 per minute"],
     storage_uri="memory://"
 )
+
+@limiter.request_filter
+def exempt_options_requests():
+    """Exempt OPTIONS requests from rate limiting for CORS preflight"""
+    from flask import request
+    return request.method == 'OPTIONS'

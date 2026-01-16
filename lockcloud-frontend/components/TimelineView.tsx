@@ -3,6 +3,9 @@
 import { useState, useMemo } from 'react';
 import { File } from '@/types';
 import { FileCardSimple } from './FileCardSimple';
+import { SignedUrlProvider } from '@/contexts/SignedUrlContext';
+import { useDeviceDetect } from '@/lib/hooks/useDeviceDetect';
+import { StylePreset } from '@/lib/api/files';
 import { zhCN } from '@/locales/zh-CN';
 
 interface TimelineGroup {
@@ -33,6 +36,10 @@ interface TimelineViewProps {
 export function TimelineView({ files, onFileUpdate, renderFileCard }: TimelineViewProps) {
   const [expandedYears, setExpandedYears] = useState<Set<number | null>>(new Set());
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  const { isMobile } = useDeviceDetect();
+  
+  // 根据设备选择缩略图样式
+  const thumbnailStyle: StylePreset = isMobile ? 'thumbmobile' : 'thumbdesktop';
 
   // Group files by year and month
   const timelineGroups = useMemo(() => {
@@ -204,19 +211,21 @@ export function TimelineView({ files, onFileUpdate, renderFileCard }: TimelineVi
                       {/* Files Grid */}
                       {isMonthExpanded && (
                         <div className="p-4 bg-primary-white">
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {monthGroup.files.map((file) => (
-                              renderFileCard ? (
-                                <div key={file.id}>{renderFileCard(file)}</div>
-                              ) : (
-                                <FileCardSimple
-                                  key={file.id}
-                                  file={file}
-                                  onFileUpdate={onFileUpdate}
-                                />
-                              )
-                            ))}
-                          </div>
+                          <SignedUrlProvider files={monthGroup.files} style={thumbnailStyle}>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                              {monthGroup.files.map((file) => (
+                                renderFileCard ? (
+                                  <div key={file.id}>{renderFileCard(file)}</div>
+                                ) : (
+                                  <FileCardSimple
+                                    key={file.id}
+                                    file={file}
+                                    onFileUpdate={onFileUpdate}
+                                  />
+                                )
+                              ))}
+                            </div>
+                          </SignedUrlProvider>
                         </div>
                       )}
                     </div>

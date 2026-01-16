@@ -135,11 +135,23 @@ def sso_login():
         
         current_app.logger.info(f'User logged in via SSO: {email}')
         
+        # Build user dict with avatar URL
+        user_data = user.to_dict()
+        if user.avatar_key:
+            try:
+                from services.s3_public_service import s3_public_service
+                user_data['avatar_url'] = s3_public_service.generate_signed_url(user.avatar_key, expiration=86400)
+            except Exception as e:
+                current_app.logger.warning(f'Failed to generate avatar URL: {str(e)}')
+                user_data['avatar_url'] = None
+        else:
+            user_data['avatar_url'] = None
+        
         return jsonify({
             'success': True,
             'message': '登录成功',
             'token': access_token,
-            'user': user.to_dict()
+            'user': user_data
         }), 200
         
     except Exception as e:
@@ -229,11 +241,22 @@ def dev_login():
         
         current_app.logger.warning(f'[DEV] Dev login used: {email}')
         
+        # Build user dict with avatar URL
+        user_data = user.to_dict()
+        if user.avatar_key:
+            try:
+                from services.s3_public_service import s3_public_service
+                user_data['avatar_url'] = s3_public_service.generate_signed_url(user.avatar_key, expiration=86400)
+            except Exception:
+                user_data['avatar_url'] = None
+        else:
+            user_data['avatar_url'] = None
+        
         return jsonify({
             'success': True,
             'message': '[开发模式] 登录成功',
             'token': access_token,
-            'user': user.to_dict()
+            'user': user_data
         }), 200
         
     except Exception as e:
@@ -287,11 +310,22 @@ def refresh():
         
         current_app.logger.info(f'Token refreshed for user: {user.email}')
         
+        # Build user dict with avatar URL
+        user_data = user.to_dict()
+        if user.avatar_key:
+            try:
+                from services.s3_public_service import s3_public_service
+                user_data['avatar_url'] = s3_public_service.generate_signed_url(user.avatar_key, expiration=86400)
+            except Exception:
+                user_data['avatar_url'] = None
+        else:
+            user_data['avatar_url'] = None
+        
         return jsonify({
             'success': True,
             'message': '令牌刷新成功',
             'token': new_token,
-            'user': user.to_dict()
+            'user': user_data
         }), 200
         
     except Exception as e:
@@ -330,9 +364,23 @@ def get_current_user():
                 }
             }), 401
         
+        # Build user dict with avatar URL
+        user_data = user.to_dict()
+        
+        # Generate signed avatar URL if avatar exists
+        if user.avatar_key:
+            try:
+                from services.s3_public_service import s3_public_service
+                user_data['avatar_url'] = s3_public_service.generate_signed_url(user.avatar_key, expiration=86400)
+            except Exception as e:
+                current_app.logger.warning(f'Failed to generate avatar URL: {str(e)}')
+                user_data['avatar_url'] = None
+        else:
+            user_data['avatar_url'] = None
+        
         return jsonify({
             'success': True,
-            'user': user.to_dict()
+            'user': user_data
         }), 200
         
     except Exception as e:
@@ -341,6 +389,241 @@ def get_current_user():
             'error': {
                 'code': 'INTERNAL_ERROR',
                 'message': '获取用户信息失败'
+            }
+        }), 500
+
+
+# ============================================================
+# Avatar Routes
+# ============================================================
+
+@auth_bp.route('/avatar/upload-url', methods=['POST'])
+@jwt_required()
+def get_avatar_upload_url():
+    """
+    Get presigned URL for avatar upload
+    
+    POST /api/auth/avatar/upload-url
+    Body: { "content_type": "image/jpeg" }
+    """
+    from services.s3_public_service import s3_public_service
+    
+    try:
+        current_user_id = int(get_jwt_identity())
+        data = request.get_json() or {}
+        
+        content_type = data.get('content_type', 'image/jpeg')
+        
+        result = s3_public_service.generate_avatar_upload_url(
+            user_id=current_user_id,
+            content_type=content_type
+        )
+        
+        return jsonify({
+            'success': True,
+            'upload_url': result['upload_url'],
+            'avatar_key': result['avatar_key']
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({
+            'error': {
+                'code': 'VALIDATION_ERROR',
+                'message': str(e)
+            }
+        }), 400
+    except Exception as e:
+        current_app.logger.error(f'Error generating avatar upload URL: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '生成上传链接失败'
+            }
+        }), 500
+
+
+@auth_bp.route('/avatar/confirm', methods=['POST'])
+@jwt_required()
+def confirm_avatar_upload():
+    """
+    Confirm avatar upload and update user profile
+    
+    POST /api/auth/avatar/confirm
+    Body: { "avatar_key": "avatars/123/xxx.jpg" }
+    """
+    from extensions import db
+    from auth.models import User
+    from services.s3_public_service import s3_public_service
+    
+    try:
+        current_user_id = int(get_jwt_identity())
+        data = request.get_json() or {}
+        
+        avatar_key = data.get('avatar_key')
+        if not avatar_key:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_ERROR',
+                    'message': '请提供 avatar_key'
+                }
+            }), 400
+        
+        # Validate key belongs to this user
+        expected_prefix = f"avatars/{current_user_id}/"
+        if not avatar_key.startswith(expected_prefix):
+            return jsonify({
+                'error': {
+                    'code': 'FORBIDDEN',
+                    'message': '无权操作此头像'
+                }
+            }), 403
+        
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({
+                'error': {
+                    'code': 'AUTH_001',
+                    'message': '用户不存在'
+                }
+            }), 404
+        
+        # Delete old avatar if exists
+        if user.avatar_key and user.avatar_key != avatar_key:
+            try:
+                s3_public_service.delete_avatar(user.avatar_key)
+            except Exception as e:
+                current_app.logger.warning(f'Failed to delete old avatar: {str(e)}')
+        
+        # Update user avatar
+        user.avatar_key = avatar_key
+        db.session.commit()
+        
+        # Generate new signed URL
+        avatar_url = s3_public_service.generate_signed_url(avatar_key, expiration=86400)
+        
+        current_app.logger.info(f'User {current_user_id} updated avatar to {avatar_key}')
+        
+        return jsonify({
+            'success': True,
+            'message': '头像更新成功',
+            'avatar_key': avatar_key,
+            'avatar_url': avatar_url
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error confirming avatar upload: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '更新头像失败'
+            }
+        }), 500
+
+
+@auth_bp.route('/avatar', methods=['DELETE'])
+@jwt_required()
+def delete_avatar():
+    """
+    Delete current user's avatar
+    
+    DELETE /api/auth/avatar
+    """
+    from extensions import db
+    from auth.models import User
+    from services.s3_public_service import s3_public_service
+    
+    try:
+        current_user_id = int(get_jwt_identity())
+        user = User.query.get(current_user_id)
+        
+        if not user:
+            return jsonify({
+                'error': {
+                    'code': 'AUTH_001',
+                    'message': '用户不存在'
+                }
+            }), 404
+        
+        if not user.avatar_key:
+            return jsonify({
+                'success': True,
+                'message': '没有头像需要删除'
+            }), 200
+        
+        # Delete from S3
+        try:
+            s3_public_service.delete_avatar(user.avatar_key)
+        except Exception as e:
+            current_app.logger.warning(f'Failed to delete avatar from S3: {str(e)}')
+        
+        # Clear avatar key
+        user.avatar_key = None
+        db.session.commit()
+        
+        current_app.logger.info(f'User {current_user_id} deleted avatar')
+        
+        return jsonify({
+            'success': True,
+            'message': '头像已删除'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting avatar: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '删除头像失败'
+            }
+        }), 500
+
+
+@auth_bp.route('/avatar/signed-url', methods=['GET'])
+@jwt_required()
+def get_avatar_signed_url():
+    """
+    Get signed URL for avatar with style
+    
+    GET /api/auth/avatar/signed-url?avatar_key=xxx&style=avatarmd
+    """
+    from services.s3_public_service import s3_public_service
+    
+    try:
+        avatar_key = request.args.get('avatar_key')
+        style = request.args.get('style', 'avatarmd')
+        
+        if not avatar_key:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_ERROR',
+                    'message': '请提供 avatar_key'
+                }
+            }), 400
+        
+        # Validate it's an avatar key
+        if not avatar_key.startswith('avatars/'):
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_ERROR',
+                    'message': '无效的 avatar_key'
+                }
+            }), 400
+        
+        signed_url = s3_public_service.generate_signed_url(avatar_key, expiration=86400, style=style)
+        
+        return jsonify({
+            'success': True,
+            'signed_url': signed_url,
+            'expires_in': 86400
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error generating avatar signed URL: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '生成签名URL失败'
             }
         }), 500
 

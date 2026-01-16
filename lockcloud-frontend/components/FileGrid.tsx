@@ -1,7 +1,11 @@
 'use client';
 
+import { useMemo } from 'react';
 import { File } from '@/types';
 import { FileCardSimple } from './FileCardSimple';
+import { SignedUrlProvider } from '@/contexts/SignedUrlContext';
+import { useDeviceDetect } from '@/lib/hooks/useDeviceDetect';
+import { StylePreset } from '@/lib/api/files';
 
 interface FileGridProps {
   files: File[];
@@ -13,44 +17,39 @@ interface FileGridProps {
 /**
  * FileGrid - 响应式文件网格布局
  * 
- * 断点适配:
- * - Mobile (< 640px): 1列
- * - Mobile-Large (640px - 767px): 2列
- * - Tablet (768px - 1023px): 2-3列
- * - Desktop (>= 1024px): 4列
- * 
- * Requirements: 3.1, 3.2, 3.5
+ * 使用 SignedUrlProvider 批量获取签名 URL，减少请求数量
  */
 export function FileGrid({ files, onFileUpdate, renderFileCard }: FileGridProps) {
+  const { isMobile } = useDeviceDetect();
+  
+  // 根据设备选择缩略图样式
+  const thumbnailStyle: StylePreset = isMobile ? 'thumbmobile' : 'thumbdesktop';
+
   return (
-    <div 
-      className={[
-        // 基础网格布局
-        'grid',
-        // 移动端: 1列 (< 640px)
-        'grid-cols-1',
-        // 移动端大屏: 2列 (640px - 767px)
-        'sm:grid-cols-2',
-        // 平板: 2-3列 (768px - 1023px)
-        'md:grid-cols-2 lg:grid-cols-3',
-        // 桌面端: 4列 (>= 1024px)
-        'xl:grid-cols-4',
-        // 响应式间距: 移动端较小间距，桌面端较大间距
-        'gap-3 sm:gap-4 md:gap-5 lg:gap-6',
-      ].join(' ')}
-    >
-      {files.map((file) => (
-        <div key={file.id}>
-          {renderFileCard ? (
-            renderFileCard(file)
-          ) : (
-            <FileCardSimple 
-              file={file} 
-              onFileUpdate={onFileUpdate}
-            />
-          )}
-        </div>
-      ))}
-    </div>
+    <SignedUrlProvider files={files} style={thumbnailStyle}>
+      <div 
+        className={[
+          'grid',
+          'grid-cols-1',
+          'sm:grid-cols-2',
+          'md:grid-cols-2 lg:grid-cols-3',
+          'xl:grid-cols-4',
+          'gap-3 sm:gap-4 md:gap-5 lg:gap-6',
+        ].join(' ')}
+      >
+        {files.map((file) => (
+          <div key={file.id}>
+            {renderFileCard ? (
+              renderFileCard(file)
+            ) : (
+              <FileCardSimple 
+                file={file} 
+                onFileUpdate={onFileUpdate}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    </SignedUrlProvider>
   );
 }

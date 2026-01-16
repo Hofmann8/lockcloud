@@ -21,7 +21,6 @@ export {
 // 视频播放器组件
 export { DanceVideoPlayer } from './DanceVideoPlayer';
 export { SimpleVideoPlayer } from './SimpleVideoPlayer';
-export { HLSVideoPlayer } from './HLSVideoPlayer';
 export { VideoPreviewSimple } from './VideoPreviewSimple';
 
 // 文件卡片组件
@@ -45,3 +44,11 @@ export { BatchEditDialog } from './BatchEditDialog';
 // Tag Input components
 export { TagInput } from './TagInput';
 export { FileTagEditor } from './FileTagEditor';
+
+// Transfer components
+export { TransferQueue } from './TransferQueue';
+export { BatchDownloadDialog } from './BatchDownloadDialog';
+
+// User components
+export { UserAvatar, UserAvatarInline } from './UserAvatar';
+export { AvatarUploadDialog } from './AvatarUploadDialog';

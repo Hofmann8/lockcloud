@@ -3,7 +3,7 @@ File management routes for LockCloud
 Implements file upload, listing, retrieval, and deletion endpoints
 """
 from datetime import datetime
-from flask import Blueprint, request, jsonify, current_app, make_response
+from flask import Blueprint, request, jsonify, current_app, make_response, redirect
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import and_, or_
 from extensions import db
@@ -15,10 +15,101 @@ from files.validators import (
 )
 from services.s3_service import s3_service
 from logs.models import FileLog, OperationType
+import threading
+
+
+def _trigger_video_transcode_preheat(s3_key: str):
+    """
+    异步触发视频 HLS 转码预热
+    全量预热 1080p 的所有 .ts 分片
+    """
+    def do_preheat():
+        import requests
+        
+        try:
+            # 1. 先请求主播放列表
+            hls_key = f"{s3_key}!style:medium/auto_medium.m3u8"
+            signed_url = s3_service.generate_signed_url(key=hls_key, expiration=300)
+            
+            current_app.logger.info(f'[Preheat] Triggering transcode for: {s3_key}')
+            resp = requests.get(signed_url, timeout=30)
+            
+            if resp.status_code != 200:
+                current_app.logger.warning(f'[Preheat] Master playlist returned {resp.status_code} for: {s3_key}')
+                return
+            
+            current_app.logger.info(f'[Preheat] Master playlist ready for: {s3_key}')
+            
+            # 2. 请求 1080p 播放列表，获取分片列表
+            try:
+                quality_key = f"{s3_key}!style:medium/1080p_medium.m3u8"
+                quality_url = s3_service.generate_signed_url(key=quality_key, expiration=600)
+                quality_resp = requests.get(quality_url, timeout=120)
+                
+                if quality_resp.status_code != 200:
+                    current_app.logger.warning(f'[Preheat] 1080p playlist failed: {quality_resp.status_code}')
+                    return
+                
+                # 3. 解析 m3u8 获取所有 .ts 分片
+                m3u8_content = quality_resp.text
+                segments = []
+                for line in m3u8_content.split('\n'):
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        if line.endswith('.ts') or '.ts' in line:
+                            segments.append(line)
+                
+                current_app.logger.info(f'[Preheat] Found {len(segments)} segments for: {s3_key}')
+                
+                # 4. 逐个预热所有 .ts 分片
+                segments_ok = 0
+                for segment in segments:
+                    try:
+                        segment_key = f"{s3_key}!style:medium/{segment}"
+                        segment_url = s3_service.generate_signed_url(key=segment_key, expiration=600)
+                        
+                        # 使用 Range 请求只获取前 1 字节，减少带宽
+                        seg_resp = requests.get(
+                            segment_url, 
+                            timeout=180,
+                            headers={'Range': 'bytes=0-0'}
+                        )
+                        
+                        if seg_resp.status_code in (200, 206):
+                            segments_ok += 1
+                    except Exception as e:
+                        current_app.logger.warning(f'[Preheat] Segment failed: {segment} - {str(e)}')
+                
+                current_app.logger.info(f'[Preheat] Preheated {segments_ok}/{len(segments)} segments for: {s3_key}')
+                
+            except Exception as e:
+                current_app.logger.warning(f'[Preheat] Failed to preheat 1080p: {str(e)}')
+                
+        except Exception as e:
+            current_app.logger.error(f'[Preheat] Failed to trigger transcode for {s3_key}: {str(e)}')
+    
+    # 在后台线程执行，不阻塞上传响应
+    from flask import current_app
+    app = current_app._get_current_object()
+    
+    def run_with_context():
+        with app.app_context():
+            do_preheat()
+    
+    thread = threading.Thread(target=run_with_context)
+    thread.daemon = True
+    thread.start()
 
 
 # Create blueprint
 files_bp = Blueprint('files', __name__)
+
+
+# Exempt OPTIONS requests from rate limiting (for CORS preflight)
+@files_bp.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        return '', 200
 
 
 @files_bp.route('/upload-url', methods=['POST'])
@@ -356,6 +447,23 @@ def confirm_upload():
         # Extract directory from s3_key (everything except the filename)
         directory_from_key = '/'.join(s3_key.split('/')[:-1])
         
+        # Fetch thumbhash for image/video files (using Bitiful's thumbhash service)
+        thumbhash = None
+        if content_type.startswith('image/') or content_type.startswith('video/'):
+            try:
+                import requests
+                # For video, use frame extraction; for image, direct thumbhash
+                thumbhash_url = f"https://{bucket}.s3.bitiful.net/{s3_key}?fmt=thumbhash"
+                if content_type.startswith('video/'):
+                    thumbhash_url = f"https://{bucket}.s3.bitiful.net/{s3_key}?frame=100&fmt=thumbhash"
+                
+                resp = requests.get(thumbhash_url, timeout=5)
+                if resp.status_code == 200:
+                    thumbhash = resp.text.strip()
+                    current_app.logger.info(f'Got thumbhash for {s3_key}: {thumbhash[:20]}...')
+            except Exception as e:
+                current_app.logger.warning(f'Failed to get thumbhash for {s3_key}: {str(e)}')
+        
         # Create file record with new fields
         file = File(
             filename=filename,
@@ -370,7 +478,8 @@ def confirm_upload():
             activity_date=activity_date,
             activity_type=activity_type,
             activity_name=activity_name,
-            is_legacy=False  # Mark as new system file
+            is_legacy=False,  # Mark as new system file
+            thumbhash=thumbhash
         )
         
         db.session.add(file)
@@ -392,6 +501,13 @@ def confirm_upload():
         current_app.logger.info(
             f'File uploaded by user {current_user_id}: {s3_key} (activity: {activity_date_str}, type: {activity_type})'
         )
+        
+        # 如果是视频文件，触发 HLS 转码预热
+        if content_type.startswith('video/'):
+            try:
+                _trigger_video_transcode_preheat(s3_key)
+            except Exception as e:
+                current_app.logger.warning(f'Failed to trigger transcode preheat for {s3_key}: {str(e)}')
         
         # Get tag preset display names for response
         from services.tag_preset_service import tag_preset_service
@@ -852,8 +968,12 @@ def delete_file(file_id):
                 }
             }), 404
         
-        # Verify user is the uploader
-        if file.uploader_id != current_user_id:
+        # Verify user is the uploader or admin
+        from auth.models import User
+        current_user = User.query.get(current_user_id)
+        is_admin = current_user and current_user.is_admin
+        
+        if file.uploader_id != current_user_id and not is_admin:
             return jsonify({
                 'error': {
                     'code': 'FILE_002',
@@ -1527,14 +1647,19 @@ def get_adjacent_files(file_id):
     """
     Get previous and next files in the same directory hierarchy
     
-    GET /api/files/<file_id>/adjacent
+    GET /api/files/<file_id>/adjacent?limit=5
     Headers: Authorization: Bearer <token>
+    
+    Query Parameters:
+        limit: Number of files to return on each side (default: 3, max: 20)
     
     Returns:
         200: Adjacent files retrieved successfully
         {
             "previous": { file object } or null,
-            "next": { file object } or null
+            "next": { file object } or null,
+            "previous_files": [ array of file objects ],
+            "next_files": [ array of file objects ]
         }
         404: File not found
         401: Unauthorized
@@ -1543,6 +1668,10 @@ def get_adjacent_files(file_id):
     try:
         # Get current user ID from JWT
         current_user_id = int(get_jwt_identity())
+        
+        # Get limit parameter (default 3, max 20)
+        limit = request.args.get('limit', 3, type=int)
+        limit = max(1, min(limit, 20))
         
         # Get the current file
         current_file = File.query.get(file_id)
@@ -1578,17 +1707,17 @@ def get_adjacent_files(file_id):
                 }
             }), 404
         
-        # Get previous 3 and next 3 files for navigation strip
+        # Get previous and next files based on limit
         previous_files = []
         next_files = []
         
-        # Get up to 3 previous files
-        for i in range(1, 4):
+        # Get up to `limit` previous files
+        for i in range(1, limit + 1):
             if current_index - i >= 0:
                 previous_files.insert(0, same_directory_files[current_index - i])
         
-        # Get up to 3 next files
-        for i in range(1, 4):
+        # Get up to `limit` next files
+        for i in range(1, limit + 1):
             if current_index + i < len(same_directory_files):
                 next_files.append(same_directory_files[current_index + i])
         
@@ -1934,6 +2063,11 @@ def batch_delete_files():
                 }
             }), 400
         
+        # Get current user info for admin check
+        from auth.models import User
+        current_user = User.query.get(current_user_id)
+        is_admin = current_user and current_user.is_admin
+        
         succeeded = []
         failed = []
         
@@ -1949,8 +2083,8 @@ def batch_delete_files():
                     })
                     continue
                 
-                # Verify user is the uploader
-                if file.uploader_id != current_user_id:
+                # Verify user is the uploader or admin
+                if file.uploader_id != current_user_id and not is_admin:
                     failed.append({
                         'file_id': file_id,
                         'error': '无权删除此文件'
@@ -2996,5 +3130,498 @@ def update_activity_directory():
             'error': {
                 'code': 'INTERNAL_ERROR',
                 'message': '更新目录失败，请稍后重试'
+            }
+        }), 500
+
+
+@files_bp.route('/signed-url/<int:file_id>', methods=['GET'])
+@jwt_required()
+def get_signed_url(file_id):
+    """
+    获取文件的签名访问 URL
+    
+    GET /api/files/signed-url/<file_id>?style=w=400
+    Headers: Authorization: Bearer <token>
+    Query Parameters:
+        - style: 图片处理样式参数（可选），如 w=400&h=300&q=80
+        - expiration: URL 有效期秒数（可选），默认 3600
+    
+    Returns:
+        200: 签名 URL 生成成功
+        404: 文件不存在
+        401: 未授权
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        # 获取文件
+        file = File.query.get(file_id)
+        if not file:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_001',
+                    'message': '文件不存在'
+                }
+            }), 404
+        
+        # 获取参数
+        style = request.args.get('style', '').strip()
+        expiration = request.args.get('expiration', type=int) or current_app.config.get('S3_URL_EXPIRATION', 3600)
+        
+        # 生成签名 URL
+        signed_url = s3_service.generate_signed_url(
+            key=file.s3_key,
+            expiration=expiration,
+            style=style if style else None
+        )
+        
+        return jsonify({
+            'success': True,
+            'signed_url': signed_url,
+            'expires_in': expiration
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error generating signed URL: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '生成签名 URL 失败'
+            }
+        }), 500
+
+
+@files_bp.route('/signed-urls', methods=['POST'])
+@jwt_required()
+def get_signed_urls_batch():
+    """
+    批量获取文件的签名访问 URL
+    
+    POST /api/files/signed-urls
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "file_ids": [1, 2, 3],
+        "style": "thumb_desktop",  // 可选，图片样式
+        "video_style": "video_thumb_desktop",  // 可选，视频样式（如不提供则自动推断）
+        "expiration": 3600  // 可选
+    }
+    
+    Returns:
+        200: 签名 URL 列表
+        400: 参数错误
+        401: 未授权
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        data = request.get_json()
+        
+        if not data or 'file_ids' not in data:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '缺少 file_ids 参数'
+                }
+            }), 400
+        
+        file_ids = data['file_ids']
+        if not isinstance(file_ids, list) or len(file_ids) == 0:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': 'file_ids 必须是非空数组'
+                }
+            }), 400
+        
+        # 限制批量请求数量
+        if len(file_ids) > 100:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '单次最多请求 100 个文件'
+                }
+            }), 400
+        
+        style = data.get('style', '').strip()
+        video_style = data.get('video_style', '').strip()
+        expiration = data.get('expiration') or current_app.config.get('S3_URL_EXPIRATION', 3600)
+        
+        # 自动推断视频样式：如果提供了图片样式但没有视频样式，尝试映射
+        if style and not video_style:
+            style_to_video_style = {
+                'thumbmobile': 'videothumbmobile',
+                'thumbdesktop': 'videothumbdesktop',
+                'thumbnav': 'videothumbnav',
+                'thumbnavdesktop': 'videothumbnavdesktop',
+                'previewmobile': 'videopreload',
+                'previewtablet': 'videopreload',
+                'previewdesktop': 'videopreload',
+            }
+            video_style = style_to_video_style.get(style, style)
+        
+        # 查询文件
+        files = File.query.filter(File.id.in_(file_ids)).all()
+        
+        # 生成签名 URL，根据文件类型选择样式
+        result = {}
+        for file in files:
+            # 根据文件类型选择样式
+            if file.content_type and file.content_type.startswith('video/'):
+                file_style = video_style if video_style else style
+            else:
+                file_style = style
+            
+            result[file.id] = {
+                'signed_url': s3_service.generate_signed_url(
+                    key=file.s3_key,
+                    expiration=expiration,
+                    style=file_style if file_style else None
+                ),
+                's3_key': file.s3_key,
+                'content_type': file.content_type
+            }
+        
+        return jsonify({
+            'success': True,
+            'urls': result,
+            'expires_in': expiration
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error generating batch signed URLs: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '批量生成签名 URL 失败'
+            }
+        }), 500
+
+
+@files_bp.route('/hls-qualities/<int:file_id>', methods=['GET'])
+@jwt_required()
+def get_hls_qualities(file_id):
+    """
+    获取视频的 HLS 可用清晰度列表
+    
+    GET /api/files/hls-qualities/<file_id>
+    Headers: Authorization: Bearer <token>
+    
+    Returns:
+        200: 清晰度列表
+        {
+            "success": true,
+            "qualities": [
+                {"height": 1080, "label": "1080p", "playlist": "1080p_medium.m3u8"},
+                {"height": 720, "label": "720p", "playlist": "720p_medium.m3u8"},
+                {"height": 480, "label": "480p", "playlist": "480p_medium.m3u8"},
+                {"height": 360, "label": "360p", "playlist": "360p_medium.m3u8"}
+            ],
+            "default_quality": 1080
+        }
+        404: 文件不存在
+        401: 未授权
+    """
+    import requests
+    import re
+    
+    try:
+        # 获取文件
+        file = File.query.get(file_id)
+        if not file:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_001',
+                    'message': '文件不存在'
+                }
+            }), 404
+        
+        # 检查是否是视频文件
+        if not file.content_type or not file.content_type.startswith('video/'):
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '不是视频文件'
+                }
+            }), 400
+        
+        expiration = current_app.config.get('S3_URL_EXPIRATION', 3600)
+        
+        # 获取主播放列表
+        master_key = f"{file.s3_key}!style:medium/auto_medium.m3u8"
+        master_url = s3_service.generate_signed_url(key=master_key, expiration=expiration)
+        
+        resp = requests.get(master_url, timeout=10)
+        if resp.status_code != 200:
+            # 主播放列表不存在，返回默认清晰度列表
+            return jsonify({
+                'success': True,
+                'qualities': [
+                    {'height': 1080, 'label': '1080p', 'playlist': '1080p_medium.m3u8'},
+                    {'height': 720, 'label': '720p', 'playlist': '720p_medium.m3u8'},
+                    {'height': 480, 'label': '480p', 'playlist': '480p_medium.m3u8'},
+                    {'height': 360, 'label': '360p', 'playlist': '360p_medium.m3u8'},
+                ],
+                'default_quality': 1080,
+                'from_manifest': False
+            }), 200
+        
+        # 解析主播放列表，提取清晰度信息
+        m3u8_content = resp.text
+        qualities = []
+        
+        # 解析 #EXT-X-STREAM-INF 标签
+        # 格式: #EXT-X-STREAM-INF:BANDWIDTH=xxx,RESOLUTION=1920x1080,...
+        lines = m3u8_content.split('\n')
+        for i, line in enumerate(lines):
+            if line.startswith('#EXT-X-STREAM-INF:'):
+                # 提取分辨率
+                resolution_match = re.search(r'RESOLUTION=(\d+)x(\d+)', line)
+                bandwidth_match = re.search(r'BANDWIDTH=(\d+)', line)
+                
+                if resolution_match:
+                    width = int(resolution_match.group(1))
+                    height = int(resolution_match.group(2))
+                    bandwidth = int(bandwidth_match.group(1)) if bandwidth_match else 0
+                    
+                    # 获取下一行的播放列表文件名
+                    playlist = ''
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        if next_line and not next_line.startswith('#'):
+                            playlist = next_line
+                    
+                    # 生成标签
+                    if height >= 2160:
+                        label = '4K'
+                    elif height >= 1440:
+                        label = '2K'
+                    elif height >= 1080:
+                        label = '1080p'
+                    elif height >= 720:
+                        label = '720p'
+                    elif height >= 480:
+                        label = '480p'
+                    else:
+                        label = f'{height}p'
+                    
+                    qualities.append({
+                        'height': height,
+                        'width': width,
+                        'label': label,
+                        'playlist': playlist,
+                        'bandwidth': bandwidth
+                    })
+        
+        # 按高度降序排序
+        qualities.sort(key=lambda x: x['height'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'qualities': qualities,
+            'default_quality': 1080,
+            'from_manifest': True
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting HLS qualities: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '获取清晰度列表失败'
+            }
+        }), 500
+
+
+@files_bp.route('/hls-segment-url', methods=['POST'])
+@jwt_required()
+def get_hls_segment_signed_url():
+    """
+    为 HLS 分片生成签名 URL
+    
+    POST /api/files/hls-segment-url
+    Headers: Authorization: Bearer <token>
+    Body: {
+        "segment_url": "https://xxx.s3.bitiful.net/path/video.mp4!style:medium/1080p_medium.mp4"
+    }
+    
+    Returns:
+        200: 签名 URL 生成成功
+        400: 参数错误
+        401: 未授权
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'segment_url' not in data:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '缺少 segment_url 参数'
+                }
+            }), 400
+        
+        segment_url = data['segment_url'].strip()
+        expiration = data.get('expiration') or current_app.config.get('S3_URL_EXPIRATION', 3600)
+        
+        # 验证 URL 是否是缤纷云的 URL
+        if 'bitiful.net' not in segment_url and 's3.bitiful' not in segment_url:
+            return jsonify({
+                'error': {
+                    'code': 'VALIDATION_001',
+                    'message': '无效的分片 URL'
+                }
+            }), 400
+        
+        # 从 URL 中提取 key
+        # URL 格式: https://bucket.s3.bitiful.net/path/to/file.mp4!style:medium/segment.mp4
+        from urllib.parse import urlparse, unquote
+        
+        parsed = urlparse(segment_url)
+        # 移除开头的 /
+        key = unquote(parsed.path.lstrip('/'))
+        
+        # 生成签名 URL
+        signed_url = s3_service.generate_signed_url(
+            key=key,
+            expiration=expiration
+        )
+        
+        return jsonify({
+            'success': True,
+            'signed_url': signed_url,
+            'expires_in': expiration
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error generating HLS segment signed URL: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '生成分片签名 URL 失败'
+            }
+        }), 500
+
+
+@files_bp.route('/hls-proxy/<int:file_id>/<path:hls_path>', methods=['GET'])
+@jwt_required()
+def proxy_hls_content(file_id, hls_path):
+    """
+    代理 HLS 内容，自动签名 m3u8 中的分片 URL
+    
+    GET /api/files/hls-proxy/<file_id>/medium/auto_medium.m3u8
+    Headers: Authorization: Bearer <token>
+    
+    Returns:
+        200: HLS 内容（m3u8 带签名的分片 URL）
+        404: 文件不存在
+        401: 未授权
+    """
+    import requests
+    from urllib.parse import urlparse, urljoin, quote
+    
+    try:
+        # 获取文件
+        file = File.query.get(file_id)
+        if not file:
+            return jsonify({
+                'error': {
+                    'code': 'FILE_001',
+                    'message': '文件不存在'
+                }
+            }), 404
+        
+        expiration = current_app.config.get('S3_URL_EXPIRATION', 3600)
+        bucket = s3_service.get_bucket_name()
+        
+        # 构建完整的 HLS key: video.mp4!style:medium/auto_medium.m3u8
+        hls_key = f"{file.s3_key}!style:{hls_path}"
+        
+        # 如果是 .m3u8 文件，获取内容并替换分片 URL 为签名 URL
+        if hls_path.endswith('.m3u8'):
+            # 生成 m3u8 文件的签名 URL
+            m3u8_signed_url = s3_service.generate_signed_url(
+                key=hls_key,
+                expiration=expiration
+            )
+            
+            # 获取 m3u8 内容
+            resp = requests.get(m3u8_signed_url, timeout=10)
+            if resp.status_code != 200:
+                return jsonify({
+                    'error': {
+                        'code': 'HLS_001',
+                        'message': f'获取 m3u8 失败: {resp.status_code}'
+                    }
+                }), 502
+            
+            m3u8_content = resp.text
+            
+            # 解析并替换分片 URL 为签名 URL
+            lines = m3u8_content.split('\n')
+            new_lines = []
+            
+            # 获取 hls_path 的目录部分
+            hls_dir = '/'.join(hls_path.split('/')[:-1])
+            if hls_dir:
+                hls_dir += '/'
+            
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    # 注释行或空行，保持不变
+                    new_lines.append(line)
+                elif (line.endswith('.mp4') or line.endswith('.ts') or 
+                      line.endswith('.m3u8') or '.ts' in line or '.mp4' in line):
+                    # 这是一个媒体文件引用
+                    if line.startswith('http'):
+                        # 绝对 URL，提取路径部分
+                        parsed = urlparse(line)
+                        path = parsed.path
+                        style_idx = path.find('!style:')
+                        if style_idx != -1:
+                            segment_path = path[style_idx + 7:]
+                        else:
+                            segment_path = line
+                    else:
+                        # 相对路径
+                        segment_path = hls_dir + line
+                    
+                    # 如果是 .m3u8 子播放列表，使用代理 URL（这样分片也能被签名）
+                    if segment_path.endswith('.m3u8'):
+                        # 子播放列表用完整的代理 URL
+                        api_base = request.host_url.rstrip('/')
+                        proxy_url = f"{api_base}/api/files/hls-proxy/{file_id}/{segment_path}"
+                        new_lines.append(proxy_url)
+                    else:
+                        # 分片文件直接用签名 URL
+                        segment_key = f"{file.s3_key}!style:{segment_path}"
+                        signed_segment_url = s3_service.generate_signed_url(
+                            key=segment_key,
+                            expiration=expiration
+                        )
+                        new_lines.append(signed_segment_url)
+                else:
+                    new_lines.append(line)
+            
+            modified_m3u8 = '\n'.join(new_lines)
+            
+            response = make_response(modified_m3u8)
+            response.headers['Content-Type'] = 'application/vnd.apple.mpegurl'
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Cache-Control'] = 'no-cache'
+            return response
+        
+        # 其他文件类型（不应该走到这里，但以防万一）
+        signed_url = s3_service.generate_signed_url(
+            key=hls_key,
+            expiration=expiration
+        )
+        return redirect(signed_url)
+        
+    except Exception as e:
+        current_app.logger.error(f'Error proxying HLS content: {str(e)}')
+        return jsonify({
+            'error': {
+                'code': 'INTERNAL_ERROR',
+                'message': '代理 HLS 内容失败'
             }
         }), 500
