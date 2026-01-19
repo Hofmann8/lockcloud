@@ -1,0 +1,109 @@
+name: lockcloud
+description: "LockCloud - 浙江大学 DFM Locking 舞队私有云存储服务 Flutter 移动应用"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI Components
+  cupertino_icons: ^1.0.8
+
+  # State Management - Riverpod 2.x
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Network - Dio 5.x
+  dio: ^5.8.0+1
+
+  # Routing - go_router
+  go_router: ^14.8.1
+
+  # Local Storage
+  flutter_secure_storage: ^9.2.4
+  shared_preferences: ^2.5.3
+
+  # Video Player
+  better_player_plus: ^1.1.2
+  video_player: ^2.9.5
+
+  # Image Preview & Caching
+  photo_view: ^0.15.0
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
+
+  # File Picker
+  image_picker: ^1.1.2
+
+  # Background Tasks (disabled for now - workmanager has compatibility issues)
+  # workmanager: ^0.5.2
+
+  # Data Classes & Serialization
+  freezed_annotation: ^3.0.0
+  json_annotation: ^4.9.0
+
+  # WebView for SSO
+  webview_flutter: ^4.10.0
+
+  # Utilities
+  path_provider: ^2.1.5
+  path: ^1.9.1
+  intl: ^0.20.2
+  collection: ^1.19.1
+  equatable: ^2.0.7
+  uuid: ^4.5.1
+  mime: ^2.0.0
+
+  # ThumbHash for image placeholders
+  flutter_thumbhash: ^0.1.0+1
+
+  # Lottie animations (splash screen)
+  lottie: ^3.3.1
+
+  # Haptic feedback (Flutter has built-in HapticFeedback, vibration package for more control)
+  # vibration: ^2.0.1  # Skip for now, use Flutter's HapticFeedback
+
+  # Device info
+  device_info_plus: ^11.4.0
+
+  # Package info (app version)
+  package_info_plus: ^9.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Linting
+  flutter_lints: ^6.0.0
+
+  # Code Generation
+  build_runner: ^2.4.15
+  freezed: ^3.1.0
+  json_serializable: ^6.9.4
+  riverpod_generator: ^2.6.5
+
+  # Testing
+  mocktail: ^1.0.4
+
+  # App Icon Generator
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon.png"
+  adaptive_icon_foreground: "assets/images/android-icon-foreground.png"
+  adaptive_icon_background: "#FFFFFF"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/animations/
+    - assets/images/
+    - assets/loadings/
