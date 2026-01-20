@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/config/theme_config.dart';
+import '../../../../core/storage/image_cache_manager.dart';
+import '../../../../core/storage/preferences_storage.dart';
 import '../../data/models/file_model.dart';
 import '../../data/services/signed_url_service.dart';
 import '../providers/batch_selection_provider.dart';
@@ -27,8 +31,16 @@ class FilesScreen extends ConsumerStatefulWidget {
 }
 
 class _FilesScreenState extends ConsumerState<FilesScreen> {
+  static const int _crossAxisCount = 2;
+  static const double _gridPadding = 12;
+  static const double _gridSpacing = 12;
+  static const double _childAspectRatio = 0.75;
+
   final ScrollController _scrollController = ScrollController();
-  Set<int> _prefetchedFileIds = {};
+  final Set<int> _prefetchedFileIds = {};
+  List<FileModel> _latestFiles = const [];
+  FileFilters? _lastFilters;
+  int _lastFileCount = 0;  // 追踪文件数量变化
 
   @override
   void initState() {
@@ -37,7 +49,10 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
 
     // 初始化加载数据
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(filesNotifierProvider.notifier).initialize();
+      final state = ref.read(filesNotifierProvider);
+      if (state.files.isEmpty && !state.isLoading) {
+        ref.read(filesNotifierProvider.notifier).initialize();
+      }
     });
   }
 
@@ -55,6 +70,18 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
     }
   }
 
+  void _resetPrefetchState({bool resetScroll = false}) {
+    _prefetchedFileIds.clear();
+    _lastFileCount = 0;
+
+    if (resetScroll) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        _scrollController.jumpTo(0);
+      });
+    }
+  }
+
   /// 判断是否应该预加载（提前加载，距离底部还有30%时就开始）
   bool get _shouldPreload {
     if (!_scrollController.hasClients) return false;
@@ -64,6 +91,25 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
     return currentScroll >= (maxScroll * 0.7);
   }
 
+  bool _isCompactLayout() {
+    final shortestSide = MediaQuery.of(context).size.shortestSide;
+    return shortestSide < 600;
+  }
+
+  StylePreset _imageThumbStyle() {
+    // 直接用 preview，跳过 thumb，让 thumbhash 有展示机会
+    return _isCompactLayout() ? StylePreset.previewmobile : StylePreset.previewdesktop;
+  }
+
+  StylePreset _videoThumbStyle() {
+    // 视频也用 preview 尺寸
+    return _isCompactLayout() ? StylePreset.previewmobile : StylePreset.previewdesktop;
+  }
+
+  String _thumbnailCacheKey(StylePreset style, int fileId) {
+    return 'thumb:${style.value}:$fileId';
+  }
+
   /// 加载更多并预取签名URL
   Future<void> _loadMoreWithPrefetch() async {
     final notifier = ref.read(filesNotifierProvider.notifier);
@@ -71,21 +117,31 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
     
     if (state.isLoading || state.isLoadingMore || !state.hasMore) return;
     
+    final oldCount = state.files.length;
     await notifier.loadMore();
     
-    // 加载完成后预取新文件的签名URL
-    final newFiles = ref.read(filesNotifierProvider).files;
-    _prefetchSignedUrls(newFiles);
+    // 只预取新增的文件
+    final newState = ref.read(filesNotifierProvider);
+    if (newState.files.length > oldCount) {
+      final newFiles = newState.files.sublist(oldCount);
+      unawaited(_prefetchSignedUrls(newFiles));
+    }
   }
 
   /// 下拉刷新
   Future<void> _onRefresh() async {
-    _prefetchedFileIds.clear();
+    _resetPrefetchState();
+    // 清除签名URL缓存
+    ref.read(batchSignedUrlNotifierProvider.notifier).clear();
     await ref.read(filesNotifierProvider.notifier).refresh();
   }
 
-  /// 批量预取签名URL
-  void _prefetchSignedUrls(List<FileModel> files) {
+  /// 批量预取签名URL（只预取 thumb）
+  Future<void> _prefetchSignedUrls(List<FileModel> files) async {
+    if (!mounted) return;
+    final imageThumbStyle = _imageThumbStyle();
+    final videoThumbStyle = _videoThumbStyle();
+
     // 根据文件类型分组，只处理未预取过的文件
     final imageIds = <int>[];
     final videoIds = <int>[];
@@ -98,26 +154,43 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
       } else if (file.isImage) {
         imageIds.add(file.id);
       }
-      _prefetchedFileIds.add(file.id);
     }
     
     if (imageIds.isEmpty && videoIds.isEmpty) return;
     
     final notifier = ref.read(batchSignedUrlNotifierProvider.notifier);
-    
-    // 分别获取图片和视频的签名URL
-    if (imageIds.isNotEmpty) {
-      notifier.fetchUrls(imageIds, style: StylePreset.thumbdesktop);
+    final imageCache = ref.read(imageCacheServiceProvider);
+
+    Future<void> fetchAndWarmCache(List<int> ids, StylePreset style) async {
+      if (ids.isEmpty) return;
+      final urls = await notifier.fetchUrls(ids, style: style);
+      if (urls.isEmpty) return;
+      final urlsByCacheKey = <String, String>{};
+      for (final entry in urls.entries) {
+        urlsByCacheKey[_thumbnailCacheKey(style, entry.key)] = entry.value;
+      }
+      await imageCache.preloadImagesWithCacheKeys(urlsByCacheKey);
+      _prefetchedFileIds.addAll(urls.keys);
     }
-    if (videoIds.isNotEmpty) {
-      notifier.fetchUrls(videoIds, style: StylePreset.videothumbdesktop);
-    }
+
+    // 只预取缩略图
+    await Future.wait([
+      fetchAndWarmCache(imageIds, imageThumbStyle),
+      fetchAndWarmCache(videoIds, videoThumbStyle),
+    ]);
   }
 
   @override
   Widget build(BuildContext context) {
     // 只监听需要的状态，避免不必要的重建
     final files = ref.watch(filesNotifierProvider.select((s) => s.files));
+    _latestFiles = files;
+    final filters = ref.watch(filesNotifierProvider.select((s) => s.filters));
+    final normalizedFilters = filters.copyWith(page: 1);
+    if (_lastFilters != null && _lastFilters != normalizedFilters) {
+      _resetPrefetchState(resetScroll: true);
+    }
+    _lastFilters = normalizedFilters;
     final isLoading = ref.watch(filesNotifierProvider.select((s) => s.isLoading));
     final isLoadingMore = ref.watch(filesNotifierProvider.select((s) => s.isLoadingMore));
     final hasMore = ref.watch(filesNotifierProvider.select((s) => s.hasMore));
@@ -197,26 +270,46 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
     required bool isLoadingMore,
     required bool hasMore,
   }) {
-    // 首次加载时预取签名URL
-    if (_prefetchedFileIds.isEmpty && files.isNotEmpty) {
+    final imageThumbStyle = _imageThumbStyle();
+    final videoThumbStyle = _videoThumbStyle();
+    
+    // 获取图片加载模式
+    final prefs = ref.watch(preferencesStorageSyncProvider);
+    final loadMode = prefs?.getImageLoadMode() ?? ImageLoadMode.dataSaver;
+    
+    // 根据模式设置 cacheExtent
+    final cacheExtent = switch (loadMode) {
+      ImageLoadMode.dataSaver => 0.0,  // 流畅：不预渲染
+      ImageLoadMode.aggressive => MediaQuery.of(context).size.height,  // 极速：预渲染 1 屏
+    };
+
+    // 首次加载时预取签名URL（只在文件列表变化时触发一次）
+    if (files.isNotEmpty && files.length != _lastFileCount) {
+      _lastFileCount = files.length;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _prefetchSignedUrls(files);
+        if (!mounted) return;
+        // 只预取新增的文件，不遍历整个列表
+        final newFiles = files.where((f) => !_prefetchedFileIds.contains(f.id)).toList();
+        if (newFiles.isNotEmpty) {
+          unawaited(_prefetchSignedUrls(newFiles));
+        }
       });
     }
 
     return CustomScrollView(
       controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
+      cacheExtent: cacheExtent,
       slivers: [
         // 文件网格
         SliverPadding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(_gridPadding),
           sliver: SliverGrid(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2, // 2 列布局
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 0.75, // 宽高比
+              crossAxisCount: _crossAxisCount, // 2 列布局
+              mainAxisSpacing: _gridSpacing,
+              crossAxisSpacing: _gridSpacing,
+              childAspectRatio: _childAspectRatio, // 宽高比
             ),
             delegate: SliverChildBuilderDelegate(
               (context, index) {
@@ -224,6 +317,8 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
                 return FileCard(
                   key: ValueKey(file.id),
                   file: file,
+                  imageThumbStyle: imageThumbStyle,
+                  videoThumbStyle: videoThumbStyle,
                 );
               },
               childCount: files.length,

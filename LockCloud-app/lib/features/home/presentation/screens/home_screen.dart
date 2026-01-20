@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/config/theme_config.dart';
+import '../../../../shared/providers/splash_state_provider.dart';
+import '../../../files/presentation/providers/files_provider.dart';
 import '../../../files/presentation/screens/files_screen.dart';
 import '../../../profile/presentation/screens/profile_screen.dart';
 import '../../../requests/presentation/providers/requests_provider.dart';
@@ -22,8 +24,11 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
+  bool _showLoadingOverlay = true;
+  late AnimationController _overlayFadeController;
+  late Animation<double> _overlayFadeAnimation;
 
   /// 页面列表
   final List<Widget> _pages = const [
@@ -32,6 +37,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     RequestsScreen(),
     ProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    
+    _overlayFadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _overlayFadeAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(parent: _overlayFadeController, curve: Curves.easeOut),
+    );
+    
+    _overlayFadeController.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) {
+        setState(() => _showLoadingOverlay = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _overlayFadeController.dispose();
+    super.dispose();
+  }
 
   /// 切换页面
   void _onDestinationSelected(int index) {
@@ -44,13 +74,52 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     // 监听待处理请求数量
     final pendingCount = ref.watch(pendingRequestCountProvider);
+    
+    // 监听开屏动画完成和文件列表加载状态
+    final splashCompleted = ref.watch(splashCompletedProvider);
+    final filesState = ref.watch(filesNotifierProvider);
+    final isFilesLoaded = !filesState.isLoading && filesState.files.isNotEmpty;
+    
+    // 开屏完成且文件加载好后，淡出遮罩
+    if (splashCompleted && isFilesLoaded && _showLoadingOverlay && !_overlayFadeController.isAnimating) {
+      Future.microtask(() {
+        if (mounted) {
+          _overlayFadeController.forward();
+        }
+      });
+    }
 
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _pages,
-      ),
-      bottomNavigationBar: _buildBottomNavigationBar(pendingCount),
+    return Stack(
+      children: [
+        Scaffold(
+          body: IndexedStack(
+            index: _currentIndex,
+            children: _pages,
+          ),
+          bottomNavigationBar: _buildBottomNavigationBar(pendingCount),
+        ),
+        
+        // 加载遮罩（白色背景+logo居中，覆盖整个屏幕包括导航栏）
+        if (_showLoadingOverlay)
+          Positioned.fill(
+            child: FadeTransition(
+              opacity: _overlayFadeAnimation,
+              child: Container(
+                color: Colors.white,
+                child: Center(
+                  child: SizedBox(
+                    width: 200,
+                    height: 200,
+                    child: Image.asset(
+                      'assets/images/icon.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 

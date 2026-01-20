@@ -79,17 +79,24 @@ class FilesNotifier extends _$FilesNotifier {
   /// [refresh] - 是否刷新（重置分页）
   ///
   /// **Validates: Requirements 2.1, 2.4**
-  Future<void> loadFiles({bool refresh = false}) async {
+  Future<void> loadFiles({
+    bool refresh = false,
+    bool clearExisting = false,
+    FileFilters? overrideFilters,
+  }) async {
     if (state.isLoading) return;
 
+    final baseFilters = overrideFilters ?? state.filters;
     final currentFilters = refresh
-        ? state.filters.copyWith(page: 1)
-        : state.filters;
+        ? baseFilters.copyWith(page: 1)
+        : baseFilters;
 
     state = state.copyWith(
       isLoading: true,
       error: null,
       filters: currentFilters,
+      files: clearExisting ? const [] : state.files,
+      pagination: clearExisting ? null : state.pagination,
     );
 
     try {
@@ -149,8 +156,11 @@ class FilesNotifier extends _$FilesNotifier {
   Future<void> updateFilters(FileFilters filters) async {
     // 重置分页
     final newFilters = filters.copyWith(page: 1);
-    state = state.copyWith(filters: newFilters);
-    await loadFiles(refresh: true);
+    await loadFiles(
+      refresh: true,
+      clearExisting: true,
+      overrideFilters: newFilters,
+    );
   }
 
   /// 设置媒体类型筛选

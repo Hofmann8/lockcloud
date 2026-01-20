@@ -184,7 +184,7 @@ class _SignedUrlProviderElement
 }
 
 String _$batchSignedUrlNotifierHash() =>
-    r'44a2a7ee9968cba623ec73e8c38da86dd44ca3ea';
+    r'c961cd5d7ad42ba4373e406c685770c30a19d6a8';
 
 /// 批量签名URL Notifier
 ///
@@ -193,10 +193,7 @@ String _$batchSignedUrlNotifierHash() =>
 /// Copied from [BatchSignedUrlNotifier].
 @ProviderFor(BatchSignedUrlNotifier)
 final batchSignedUrlNotifierProvider =
-    AutoDisposeNotifierProvider<
-      BatchSignedUrlNotifier,
-      BatchSignedUrlState
-    >.internal(
+    NotifierProvider<BatchSignedUrlNotifier, BatchSignedUrlState>.internal(
       BatchSignedUrlNotifier.new,
       name: r'batchSignedUrlNotifierProvider',
       debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
@@ -206,6 +203,6 @@ final batchSignedUrlNotifierProvider =
       allTransitiveDependencies: null,
     );
 
-typedef _$BatchSignedUrlNotifier = AutoDisposeNotifier<BatchSignedUrlState>;
+typedef _$BatchSignedUrlNotifier = Notifier<BatchSignedUrlState>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

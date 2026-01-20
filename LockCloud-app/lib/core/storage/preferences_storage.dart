@@ -21,6 +21,26 @@ enum VideoQuality {
   }
 }
 
+/// 图片加载模式枚举
+enum ImageLoadMode {
+  /// 省流模式：不预加载，进入视窗才加载，有渐变动画
+  dataSaver('data_saver', '流畅模式'),
+  /// 激进模式：视窗外提前渲染，最快但流量大
+  aggressive('aggressive', '极速模式');
+
+  final String value;
+  final String displayName;
+
+  const ImageLoadMode(this.value, this.displayName);
+
+  static ImageLoadMode fromValue(String? value) {
+    return ImageLoadMode.values.firstWhere(
+      (m) => m.value == value,
+      orElse: () => ImageLoadMode.dataSaver,
+    );
+  }
+}
+
 /// 播放速度枚举
 enum PlaybackSpeed {
   speed0_5x(0.5, '0.5x'),
@@ -91,6 +111,7 @@ class PreferencesStorage {
   static const String _keyFileSortOrder = 'file_sort_order';
   static const String _keyShowFileSize = 'show_file_size';
   static const String _keyShowUploadDate = 'show_upload_date';
+  static const String _keyImageLoadMode = 'image_load_mode';
 
   // 最后选择的目录/筛选条件
   static const String _keyLastDirectory = 'last_directory';
@@ -254,6 +275,19 @@ class PreferencesStorage {
   /// 设置是否显示上传日期
   Future<bool> setShowUploadDate(bool show) async {
     return _prefs.setBool(_keyShowUploadDate, show);
+  }
+
+  /// 获取图片加载模式
+  ///
+  /// 默认值：省流模式
+  ImageLoadMode getImageLoadMode() {
+    final value = _prefs.getString(_keyImageLoadMode);
+    return ImageLoadMode.fromValue(value);
+  }
+
+  /// 设置图片加载模式
+  Future<bool> setImageLoadMode(ImageLoadMode mode) async {
+    return _prefs.setString(_keyImageLoadMode, mode.value);
   }
 
   // ==================== 最后选择的目录/筛选条件 ====================

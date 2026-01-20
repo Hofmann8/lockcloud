@@ -6,7 +6,7 @@ import '../providers/splash_state_provider.dart';
 
 /// 动画开屏组件
 ///
-/// 显示 Lottie 动画，动画完成后淡出
+/// 显示 Lottie 动画，动画完成后显示静态logo过渡，再通知后续页面
 class AnimatedSplashScreen extends ConsumerStatefulWidget {
   final Widget child;
   final bool isReady;
@@ -25,35 +25,18 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
     with TickerProviderStateMixin {
   bool _animationFinished = false;
   bool _showSplash = true;
+  bool _showStaticLogo = false; // 显示静态logo过渡
   bool _isFadingOut = false;
   AnimationController? _lottieController;
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
-    
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    );
-    _fadeAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
-    );
-    
-    _fadeController.addStatusListener((status) {
-      if (status == AnimationStatus.completed && mounted) {
-        ref.read(splashCompletedProvider.notifier).state = true;
-        setState(() => _showSplash = false);
-      }
-    });
   }
 
   @override
   void dispose() {
     _lottieController?.dispose();
-    _fadeController.dispose();
     super.dispose();
   }
 
@@ -68,6 +51,8 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
   void _onAnimationFinish() {
     if (!_animationFinished && mounted) {
       _animationFinished = true;
+      // 动画结束，切换到静态logo
+      setState(() => _showStaticLogo = true);
       _checkHideSplash();
     }
   }
@@ -75,9 +60,11 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
   void _checkHideSplash() {
     if (_animationFinished && widget.isReady && _showSplash && !_isFadingOut) {
       _isFadingOut = true;
-      Future.delayed(const Duration(milliseconds: 50), () {
+      // 静态logo停留一小段时间，让后续页面有时间准备
+      Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) {
-          _fadeController.forward();
+          ref.read(splashCompletedProvider.notifier).state = true;
+          setState(() => _showSplash = false);
         }
       });
     }
@@ -91,48 +78,46 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
         children: [
           widget.child,
           
-          // 开屏背景和Lottie动画
+          // 开屏层
           if (_showSplash)
-            FadeTransition(
-              opacity: _fadeAnimation,
-              child: Container(
-                color: Colors.white,
-                child: Center(
-                  child: Lottie.asset(
-                    'assets/animations/splash-animation.json',
-                    width: 200,
-                    height: 200,
-                    fit: BoxFit.contain,
-                    onLoaded: (composition) {
-                      _lottieController = AnimationController(
-                        vsync: this,
-                        duration: composition.duration,
-                      );
-                      _lottieController!.addStatusListener((status) {
-                        if (status == AnimationStatus.completed) {
-                          _onAnimationFinish();
-                        }
-                      });
-                      _lottieController!.forward();
-                    },
-                    controller: _lottieController,
-                    errorBuilder: (context, error, stackTrace) {
-                      Future.microtask(() => _onAnimationFinish());
-                      return Image.asset(
-                        'assets/images/icon.png',
-                        width: 100,
-                        height: 100,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(
-                            Icons.cloud_outlined,
-                            size: 100,
-                            color: Color(0xFF5fa8d3),
+            Container(
+              color: Colors.white,
+              child: Center(
+                child: _showStaticLogo
+                    // 静态logo（承接动画结尾，避免卡顿可见）
+                    ? SizedBox(
+                        width: 200,
+                        height: 200,
+                        child: Image.asset(
+                          'assets/images/icon.png',
+                          fit: BoxFit.contain,
+                        ),
+                      )
+                    // Lottie动画
+                    : Lottie.asset(
+                        'assets/animations/splash-animation.json',
+                        width: 200,
+                        height: 200,
+                        fit: BoxFit.contain,
+                        onLoaded: (composition) {
+                          _lottieController = AnimationController(
+                            vsync: this,
+                            duration: composition.duration,
                           );
+                          _lottieController!.addStatusListener((status) {
+                            if (status == AnimationStatus.completed) {
+                              _onAnimationFinish();
+                            }
+                          });
+                          _lottieController!.forward();
                         },
-                      );
-                    },
-                  ),
-                ),
+                        controller: _lottieController,
+                        errorBuilder: (context, error, stackTrace) {
+                          // 动画加载失败，直接跳过
+                          Future.microtask(() => _onAnimationFinish());
+                          return const SizedBox.shrink();
+                        },
+                      ),
               ),
             ),
         ],

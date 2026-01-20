@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_thumbhash/flutter_thumbhash.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../../core/config/theme_config.dart';
@@ -61,7 +62,7 @@ class VideoPlayerState {
     this.duration = Duration.zero,
     this.buffered = Duration.zero,
     this.playbackSpeed = 1.0,
-    this.quality = VideoQuality.p1080,
+    this.quality = VideoQuality.auto,
     this.isMirrored = false,
     this.isFullscreen = false,
     this.showControls = true,
@@ -203,33 +204,10 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
         return;
       }
 
-      // 构建 HLS 代理 URL
-      final hlsUrl = _buildHlsProxyUrl(_state.quality);
-      
-      // 创建控制器
-      _controller = VideoPlayerController.networkUrl(
-        Uri.parse(hlsUrl),
-        httpHeaders: {'Authorization': 'Bearer $_authToken'},
-      );
-
-      // 初始化
-      await _controller!.initialize();
-      
-      // 设置监听器
-      _controller!.addListener(_onVideoStateChanged);
-      
-      // 开始位置更新定时器
-      _startPositionUpdateTimer();
-
-      setState(() {
-        _state = _state.copyWith(
-          isInitialized: true,
-          duration: _controller!.value.duration,
-        );
-      });
-
-      // 自动播放
-      await _controller!.play();
+      final initialized = await _initializeController(_state.quality);
+      if (!initialized && _state.quality != VideoQuality.auto) {
+        await _initializeController(VideoQuality.auto, force: true);
+      }
     } catch (e) {
       setState(() {
         _state = _state.copyWith(
@@ -240,6 +218,53 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     }
   }
 
+
+  Future<bool> _initializeController(
+    VideoQuality quality, {
+    bool force = false,
+  }) async {
+    try {
+      _controller?.removeListener(_onVideoStateChanged);
+      await _controller?.dispose();
+      _controller = null;
+
+      final hlsUrl = _buildHlsProxyUrl(quality);
+
+      _controller = VideoPlayerController.networkUrl(
+        Uri.parse(hlsUrl),
+        httpHeaders: {'Authorization': 'Bearer $_authToken'},
+      );
+
+      await _controller!.initialize();
+      _controller!.addListener(_onVideoStateChanged);
+      _startPositionUpdateTimer();
+
+      if (mounted) {
+        setState(() {
+          _state = _state.copyWith(
+            isInitialized: true,
+            duration: _controller!.value.duration,
+            quality: quality,
+            hasError: false,
+            errorMessage: null,
+          );
+        });
+      }
+
+      await _controller!.play();
+      return true;
+    } catch (e) {
+      if (force && mounted) {
+        setState(() {
+          _state = _state.copyWith(
+            hasError: true,
+            errorMessage: '视频加载失败: ${e.toString()}',
+          );
+        });
+      }
+      return false;
+    }
+  }
 
   /// 构建 HLS 代理 URL
   ///
@@ -674,12 +699,34 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
 
   /// 构建占位图
   Widget _buildPlaceholder() {
+    Widget? thumbhashWidget;
+    if (widget.thumbhash != null && widget.thumbhash!.isNotEmpty) {
+      try {
+        final hash = ThumbHash.fromBase64(widget.thumbhash!);
+        thumbhashWidget = Image(
+          image: hash.toImage(),
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          gaplessPlayback: true,
+        );
+      } catch (e) {
+        // Ignore thumbhash decode failures.
+      }
+    }
+
     return Container(
       color: ThemeConfig.backgroundColor,
-      child: const Center(
-        child: CircularProgressIndicator(
-          color: ThemeConfig.primaryColor,
-        ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (thumbhashWidget != null) thumbhashWidget,
+          const Center(
+            child: CircularProgressIndicator(
+              color: ThemeConfig.primaryColor,
+            ),
+          ),
+        ],
       ),
     );
   }

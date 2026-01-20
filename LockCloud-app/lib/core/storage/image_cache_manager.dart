@@ -132,6 +132,20 @@ class ImageCacheService {
     }
   }
 
+  /// 预加载图片到缓存（使用稳定的缓存 key）
+  ///
+  /// [urlsByCacheKey] - 缓存 key 与 URL 的映射
+  Future<void> preloadImagesWithCacheKeys(Map<String, String> urlsByCacheKey) async {
+    for (final entry in urlsByCacheKey.entries) {
+      try {
+        await _cacheManager.downloadFile(entry.value, key: entry.key);
+      } catch (e) {
+        // 预加载失败不影响主要功能
+        debugPrint('Failed to preload image: ${entry.value}');
+      }
+    }
+  }
+
   /// 获取缓存大小（字节）
   Future<int> getCacheSize() async {
     try {

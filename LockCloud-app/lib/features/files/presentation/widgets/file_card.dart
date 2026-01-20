@@ -6,33 +6,44 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/config/theme_config.dart';
 import '../../../../core/storage/image_cache_manager.dart';
+import '../../../../core/storage/preferences_storage.dart';
 import '../../data/models/file_model.dart';
+import '../../data/services/signed_url_service.dart';
 import '../providers/batch_selection_provider.dart';
 import '../providers/signed_url_provider.dart';
 
 /// 文件卡片组件 - 与 Web 端 FileCardSimple 风格一致
 ///
 /// 显示单个文件的卡片，包括：
-/// - 缩略图（支持 ThumbHash 占位图）
+/// - 缩略图（thumbhash → thumb）
 /// - 文件名
 /// - 元数据（大小、日期等）
 /// - 选择状态指示器
 class FileCard extends ConsumerWidget {
   final FileModel file;
+  final StylePreset imageThumbStyle;
+  final StylePreset videoThumbStyle;
 
   const FileCard({
     super.key,
     required this.file,
+    required this.imageThumbStyle,
+    required this.videoThumbStyle,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isSelectionMode = ref.watch(isInSelectionModeProvider);
     final isSelected = ref.watch(isFileSelectedProvider(file.id));
-    
+    final thumbnailStyle = file.isVideo ? videoThumbStyle : imageThumbStyle;
+    final thumbnailCacheKey = _thumbnailCacheKey(thumbnailStyle);
+
     // 从批量签名URL缓存中获取URL（只读取，不触发请求）
-    final signedUrl = ref.watch(
-      batchSignedUrlNotifierProvider.select((s) => s.urls[file.id])
+    // 列表页只用 thumb，不用 preview
+    final thumbnailUrl = ref.watch(
+      batchSignedUrlNotifierProvider.select(
+        (s) => s.getUrl(file.id, thumbnailStyle),
+      ),
     );
 
     return GestureDetector(
@@ -61,9 +72,9 @@ class FileCard extends ConsumerWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 缩略图
+                // 缩略图：thumbhash → preview
                 Expanded(
-                  child: _buildThumbnail(signedUrl),
+                  child: _buildThumbnail(ref, thumbnailUrl, cacheKey: thumbnailCacheKey),
                 ),
 
                 // 文件信息
@@ -94,8 +105,26 @@ class FileCard extends ConsumerWidget {
 
 
 
-  /// 构建缩略图
-  Widget _buildThumbnail(String? thumbnailUrl) {
+  /// 构建缩略图：thumbhash → preview（带渐变效果）
+  Widget _buildThumbnail(
+    WidgetRef ref,
+    String? thumbnailUrl, {
+    required String cacheKey,
+  }) {
+    // 获取图片加载模式
+    final prefs = ref.watch(preferencesStorageSyncProvider);
+    final loadMode = prefs?.getImageLoadMode() ?? ImageLoadMode.dataSaver;
+    
+    // 根据模式设置动画时长
+    final fadeInDuration = switch (loadMode) {
+      ImageLoadMode.dataSaver => const Duration(milliseconds: 400),  // 流畅：丝滑渐变
+      ImageLoadMode.aggressive => Duration.zero, // 极速：无动画
+    };
+    final fadeOutDuration = switch (loadMode) {
+      ImageLoadMode.dataSaver => const Duration(milliseconds: 200),
+      ImageLoadMode.aggressive => Duration.zero,
+    };
+
     return Container(
       width: double.infinity,
       color: ThemeConfig.surfaceContainerColor,
@@ -103,12 +132,21 @@ class FileCard extends ConsumerWidget {
           ? CachedNetworkImage(
               imageUrl: thumbnailUrl,
               fit: BoxFit.cover,
+              cacheKey: cacheKey,
               cacheManager: LockCloudImageCacheManager.instance,
               placeholder: (context, url) => _buildPlaceholder(),
               errorWidget: (context, url, error) => _buildPlaceholder(),
+              useOldImageOnUrlChange: true,
+              fadeInDuration: fadeInDuration,
+              fadeOutDuration: fadeOutDuration,
+              placeholderFadeInDuration: Duration.zero,
             )
           : _buildPlaceholder(),
     );
+  }
+
+  String _thumbnailCacheKey(StylePreset style) {
+    return 'thumb:${style.value}:${file.id}';
   }
 
   /// 构建占位图 - 使用 ThumbHash 生成模糊占位图

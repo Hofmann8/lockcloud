@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/config/theme_config.dart';
+import '../../../../core/storage/preferences_storage.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../providers/profile_provider.dart';
 import '../widgets/avatar_picker.dart';
@@ -314,6 +315,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   /// 构建设置选项区域
   Widget _buildSettingsSection() {
+    final prefs = ref.watch(preferencesStorageSyncProvider);
+    final currentMode = prefs?.getImageLoadMode() ?? ImageLoadMode.dataSaver;
+    
     return Container(
       decoration: BoxDecoration(
         color: ThemeConfig.surfaceColor,
@@ -323,6 +327,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       child: Column(
         children: [
           _buildSettingItem(
+            icon: Icons.image_outlined,
+            title: '图片加载模式',
+            subtitle: currentMode.displayName,
+            onTap: () => _showImageLoadModeDialog(currentMode),
+          ),
+          Divider(height: 1, color: ThemeConfig.borderColor),
+          _buildSettingItem(
             icon: Icons.info_outline,
             title: '关于 LockCloud',
             onTap: () => _showAboutDialog(),
@@ -330,6 +341,121 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ],
       ),
     );
+  }
+  
+  /// 显示图片加载模式选择对话框
+  void _showImageLoadModeDialog(ImageLoadMode currentMode) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: ThemeConfig.surfaceColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 拖动指示器
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: ThemeConfig.accentGray.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  '图片加载模式',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: ThemeConfig.primaryBlack,
+                  ),
+                ),
+              ),
+              ...ImageLoadMode.values.map((mode) => RadioListTile<ImageLoadMode>(
+                value: mode,
+                groupValue: currentMode,
+                title: Text(mode.displayName, style: TextStyle(color: ThemeConfig.primaryBlack)),
+                subtitle: Text(
+                  _getImageLoadModeDescription(mode),
+                  style: TextStyle(color: ThemeConfig.accentGray, fontSize: 12),
+                ),
+                activeColor: ThemeConfig.primaryColor,
+                onChanged: (value) async {
+                  if (value != null) {
+                    Navigator.pop(context);
+                    // 切换到极速模式时显示警告
+                    if (value == ImageLoadMode.aggressive) {
+                      final confirmed = await _showAggressiveModeWarning();
+                      if (confirmed != true) return;
+                    }
+                    final prefs = ref.read(preferencesStorageSyncProvider);
+                    await prefs?.setImageLoadMode(value);
+                    if (mounted) {
+                      setState(() {});  // 刷新显示
+                    }
+                  }
+                },
+              )),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// 显示极速模式警告
+  Future<bool?> _showAggressiveModeWarning() {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: ThemeConfig.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: ThemeConfig.warningColor),
+            const SizedBox(width: 8),
+            Text('注意', style: TextStyle(color: ThemeConfig.primaryBlack)),
+          ],
+        ),
+        content: Text(
+          '进入极速模式后会提前加载很多内容，请注意流量开销。',
+          style: TextStyle(color: ThemeConfig.onSurfaceVariantColor),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('取消', style: TextStyle(color: ThemeConfig.accentGray)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: ThemeConfig.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// 获取图片加载模式的描述
+  String _getImageLoadModeDescription(ImageLoadMode mode) {
+    return switch (mode) {
+      ImageLoadMode.dataSaver => '渐进式加载，体验更丝滑',
+      ImageLoadMode.aggressive => '预加载内容，响应更迅速',
+    };
   }
 
   /// 构建设置项
