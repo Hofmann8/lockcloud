@@ -579,6 +579,205 @@ def delete_avatar():
         }), 500
 
 
+# ============================================================
+# SSO Internal API (供 SSO 服务调用)
+# ============================================================
+
+def verify_sso_internal_key():
+    """验证 SSO 内部调用，复用 JWT_SECRET_KEY"""
+    api_key = request.headers.get('X-SSO-Internal-Key')
+    expected_key = current_app.config.get('JWT_SECRET_KEY')
+    
+    if not expected_key or not api_key:
+        return False
+    
+    return api_key == expected_key
+
+
+@auth_bp.route('/sso-internal/avatar/<int:user_id>', methods=['GET'])
+def sso_get_user_avatar(user_id):
+    """
+    SSO 内部接口：获取用户头像签名 URL
+    
+    GET /api/auth/sso-internal/avatar/{user_id}?style=avatarmd
+    Headers: X-SSO-Internal-Key: <configured_key>
+    
+    供 SSO 服务调用，其他业务统一从 SSO 获取用户头像
+    """
+    from auth.models import User
+    from services.s3_public_service import s3_public_service
+    
+    if not verify_sso_internal_key():
+        return jsonify({
+            'error': {'code': 'UNAUTHORIZED', 'message': '无效的内部调用凭证'}
+        }), 401
+    
+    style = request.args.get('style', 'avatarmd')
+    
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({
+            'success': True,
+            'avatar_url': None,
+            'has_avatar': False
+        }), 200
+    
+    if not user.avatar_key:
+        return jsonify({
+            'success': True,
+            'avatar_url': None,
+            'has_avatar': False
+        }), 200
+    
+    try:
+        signed_url = s3_public_service.generate_signed_url(
+            user.avatar_key, 
+            expiration=86400,
+            style=style
+        )
+        
+        return jsonify({
+            'success': True,
+            'avatar_url': signed_url,
+            'avatar_key': user.avatar_key,
+            'has_avatar': True,
+            'expires_in': 86400
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f'SSO internal: Failed to get avatar for user {user_id}: {str(e)}')
+        return jsonify({
+            'error': {'code': 'INTERNAL_ERROR', 'message': '获取头像失败'}
+        }), 500
+
+
+@auth_bp.route('/sso-internal/avatars', methods=['POST'])
+def sso_get_user_avatars_batch():
+    """
+    SSO 内部接口：批量获取用户头像
+    
+    POST /api/auth/sso-internal/avatars
+    Headers: X-SSO-Internal-Key: <configured_key>
+    Body: { "user_ids": [1, 2, 3], "style": "avatarmd" }
+    
+    供 SSO 服务调用
+    """
+    from auth.models import User
+    from services.s3_public_service import s3_public_service
+    
+    if not verify_sso_internal_key():
+        return jsonify({
+            'error': {'code': 'UNAUTHORIZED', 'message': '无效的内部调用凭证'}
+        }), 401
+    
+    data = request.get_json() or {}
+    user_ids = data.get('user_ids', [])
+    style = data.get('style', 'avatarmd')
+    
+    if not user_ids:
+        return jsonify({'success': True, 'avatars': {}}), 200
+    
+    if len(user_ids) > 100:
+        return jsonify({
+            'error': {'code': 'VALIDATION_ERROR', 'message': '单次最多查询 100 个用户'}
+        }), 400
+    
+    users = User.query.filter(User.id.in_(user_ids)).all()
+    
+    result = {}
+    for user in users:
+        if user.avatar_key:
+            try:
+                result[user.id] = {
+                    'avatar_url': s3_public_service.generate_signed_url(
+                        user.avatar_key, expiration=86400, style=style
+                    ),
+                    'avatar_key': user.avatar_key,
+                    'has_avatar': True
+                }
+            except Exception as e:
+                current_app.logger.warning(f'Failed to get avatar for user {user.id}: {str(e)}')
+                result[user.id] = {'avatar_url': None, 'has_avatar': False}
+        else:
+            result[user.id] = {'avatar_url': None, 'has_avatar': False}
+    
+    # 对于不存在的用户也返回空
+    for uid in user_ids:
+        if uid not in result:
+            result[uid] = {'avatar_url': None, 'has_avatar': False}
+    
+    return jsonify({
+        'success': True,
+        'avatars': result,
+        'expires_in': 86400
+    }), 200
+
+
+@auth_bp.route('/sso-internal/avatar/by-email', methods=['GET'])
+def sso_get_avatar_by_email():
+    """
+    SSO 内部接口：通过 email 获取头像
+    
+    GET /api/auth/sso-internal/avatar/by-email?email=xxx@example.com&style=avatarmd
+    Headers: X-SSO-Internal-Key: <configured_key>
+    """
+    from auth.models import User
+    from services.s3_public_service import s3_public_service
+    
+    if not verify_sso_internal_key():
+        return jsonify({
+            'error': {'code': 'UNAUTHORIZED', 'message': '无效的内部调用凭证'}
+        }), 401
+    
+    email = request.args.get('email', '').lower().strip()
+    style = request.args.get('style', 'avatarmd')
+    
+    if not email:
+        return jsonify({
+            'error': {'code': 'VALIDATION_ERROR', 'message': '缺少 email 参数'}
+        }), 400
+    
+    user = User.query.filter_by(email=email).first()
+    
+    if not user:
+        return jsonify({
+            'success': True,
+            'avatar_url': None,
+            'has_avatar': False,
+            'user_exists': False
+        }), 200
+    
+    if not user.avatar_key:
+        return jsonify({
+            'success': True,
+            'avatar_url': None,
+            'has_avatar': False,
+            'user_exists': True,
+            'user_id': user.id,
+            'user_name': user.name
+        }), 200
+    
+    try:
+        signed_url = s3_public_service.generate_signed_url(
+            user.avatar_key, expiration=86400, style=style
+        )
+        
+        return jsonify({
+            'success': True,
+            'avatar_url': signed_url,
+            'avatar_key': user.avatar_key,
+            'has_avatar': True,
+            'user_exists': True,
+            'user_id': user.id,
+            'user_name': user.name,
+            'expires_in': 86400
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f'SSO internal: Failed to get avatar by email {email}: {str(e)}')
+        return jsonify({
+            'error': {'code': 'INTERNAL_ERROR', 'message': '获取头像失败'}
+        }), 500
+
+
 @auth_bp.route('/avatar/signed-url', methods=['GET'])
 @jwt_required()
 def get_avatar_signed_url():

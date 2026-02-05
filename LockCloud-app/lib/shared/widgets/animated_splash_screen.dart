@@ -27,6 +27,7 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
   bool _showSplash = true;
   bool _showStaticLogo = false; // 显示静态logo过渡
   bool _isFadingOut = false;
+  bool _childBuilt = false;  // 延迟构建 child
   AnimationController? _lottieController;
 
   @override
@@ -51,9 +52,18 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
   void _onAnimationFinish() {
     if (!_animationFinished && mounted) {
       _animationFinished = true;
-      // 动画结束，切换到静态logo
+      // 标记 Lottie 动画完成
+      ref.read(lottieFinishedProvider.notifier).state = true;
+      // 先切换到静态 logo
       setState(() => _showStaticLogo = true);
-      _checkHideSplash();
+      
+      // 等静态 logo 渲染完成后，再构建 child，避免白屏
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() => _childBuilt = true);
+          _checkHideSplash();
+        }
+      });
     }
   }
 
@@ -76,29 +86,37 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
       textDirection: TextDirection.ltr,
       child: Stack(
         children: [
-          widget.child,
+          // 延迟构建 child，直到 Lottie 动画完成
+          if (_childBuilt) widget.child,
           
           // 开屏层
           if (_showSplash)
-            Container(
-              color: Colors.white,
-              child: Center(
-                child: _showStaticLogo
-                    // 静态logo（承接动画结尾，避免卡顿可见）
-                    ? SizedBox(
-                        width: 200,
-                        height: 200,
-                        child: Image.asset(
-                          'assets/images/icon.png',
-                          fit: BoxFit.contain,
-                        ),
-                      )
-                    // Lottie动画
-                    : Lottie.asset(
+            Stack(
+              children: [
+                // 最底层：静态 logo（始终存在）
+                Container(
+                  color: Colors.white,
+                  child: Center(
+                    child: Image.asset(
+                      'assets/images/icon.png',
+                      width: 200,
+                      height: 200,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                
+                // 中间层：白色背景 + Lottie 动画（动画结束后隐藏）
+                if (!_showStaticLogo)
+                  Container(
+                    color: Colors.white,
+                    child: Center(
+                      child: Lottie.asset(
                         'assets/animations/splash-animation.json',
                         width: 200,
                         height: 200,
                         fit: BoxFit.contain,
+                        options: LottieOptions(enableMergePaths: true),
                         onLoaded: (composition) {
                           _lottieController = AnimationController(
                             vsync: this,
@@ -113,12 +131,13 @@ class _AnimatedSplashScreenState extends ConsumerState<AnimatedSplashScreen>
                         },
                         controller: _lottieController,
                         errorBuilder: (context, error, stackTrace) {
-                          // 动画加载失败，直接跳过
                           Future.microtask(() => _onAnimationFinish());
                           return const SizedBox.shrink();
                         },
                       ),
-              ),
+                    ),
+                  ),
+              ],
             ),
         ],
       ),

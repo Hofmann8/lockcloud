@@ -9,6 +9,7 @@ import '../../../../core/storage/image_cache_manager.dart';
 import '../../../../core/storage/preferences_storage.dart';
 import '../../data/models/file_model.dart';
 import '../../data/services/signed_url_service.dart';
+import '../models/file_detail_entry.dart';
 import '../providers/batch_selection_provider.dart';
 import '../providers/signed_url_provider.dart';
 
@@ -47,7 +48,13 @@ class FileCard extends ConsumerWidget {
     );
 
     return GestureDetector(
-      onTap: () => _onTap(context, ref, isSelectionMode),
+      onTap: () => _onTap(
+        context,
+        ref,
+        isSelectionMode,
+        thumbnailUrl,
+        thumbnailCacheKey,
+      ),
       onLongPress: () => _onLongPress(ref),
       child: Container(
         decoration: BoxDecoration(
@@ -125,7 +132,7 @@ class FileCard extends ConsumerWidget {
       ImageLoadMode.aggressive => Duration.zero,
     };
 
-    return Container(
+    final imageWidget = Container(
       width: double.infinity,
       color: ThemeConfig.surfaceContainerColor,
       child: thumbnailUrl != null
@@ -142,6 +149,12 @@ class FileCard extends ConsumerWidget {
               placeholderFadeInDuration: Duration.zero,
             )
           : _buildPlaceholder(),
+    );
+
+    // 用 Hero 包裹实现页面转场动画
+    return Hero(
+      tag: 'file_image_${file.id}',
+      child: imageWidget,
     );
   }
 
@@ -198,9 +211,9 @@ class FileCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 文件名
+          // 文件名（优先显示重命名后的文件名）
           Text(
-            file.originalFilename ?? file.filename,
+            file.filename,
             style: TextStyle(
               color: ThemeConfig.primaryBlack,
               fontSize: 13,
@@ -302,13 +315,27 @@ class FileCard extends ConsumerWidget {
   }
 
   /// 点击处理
-  void _onTap(BuildContext context, WidgetRef ref, bool isSelectionMode) {
+  void _onTap(
+    BuildContext context,
+    WidgetRef ref,
+    bool isSelectionMode,
+    String? thumbnailUrl,
+    String thumbnailCacheKey,
+  ) {
     if (isSelectionMode) {
       // 选择模式下，切换选择状态
       ref.read(batchSelectionNotifierProvider.notifier).toggleSelection(file.id);
     } else {
       // 非选择模式，进入详情页
-      context.push('/files/${file.id}');
+      final entry = FileDetailEntry(
+        fileId: file.id,
+        thumbhash: file.thumbhash,
+        thumbnailUrl: thumbnailUrl,
+        thumbnailCacheKey: thumbnailCacheKey,
+        isVideo: file.isVideo,
+        filename: file.filename,
+      );
+      context.push('/files/${file.id}', extra: entry);
     }
   }
 

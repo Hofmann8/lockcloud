@@ -2,128 +2,200 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/config/theme_config.dart';
+import '../../../../shared/providers/splash_state_provider.dart';
 import '../providers/files_provider.dart';
 import 'directory_tree.dart';
 import 'tag_filter.dart';
 
-/// 筛选栏组件 - 与 Web 端 FilterPanel 风格一致
-///
-/// 显示文件筛选选项，包括：
-/// - 目录选择按钮
-/// - 媒体类型切换（全部/图片/视频）
-/// - 文件计数
-/// - 标签筛选
-class FilterBar extends ConsumerWidget {
+/// 筛选栏折叠状态 Provider
+final filterBarCollapsedProvider = StateProvider<bool>((ref) => false);
+
+/// navbar 高度 Provider（动态测量）
+final navbarHeightProvider = StateProvider<double>((ref) => 150.0);
+
+/// 筛选栏组件 - 支持平滑折叠
+class FilterBar extends ConsumerStatefulWidget {
   const FilterBar({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      decoration: BoxDecoration(
-        color: ThemeConfig.surfaceColor,
-        border: Border(
-          bottom: BorderSide(color: ThemeConfig.borderColor),
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 主筛选栏
-          _buildMainFilterBar(context, ref),
+  ConsumerState<FilterBar> createState() => _FilterBarState();
+}
 
-          // 标签筛选
-          const TagFilter(),
-        ],
-      ),
-    );
+class _FilterBarState extends ConsumerState<FilterBar> {
+  final GlobalKey _navKey = GlobalKey();
+  
+  @override
+  void initState() {
+    super.initState();
   }
 
-  /// 构建主筛选栏
-  Widget _buildMainFilterBar(BuildContext context, WidgetRef ref) {
+  @override
+  Widget build(BuildContext context) {
+    final isCollapsed = ref.watch(filterBarCollapsedProvider);
     final currentDirectory = ref.watch(currentDirectoryProvider);
     final fileCount = ref.watch(fileCountProvider);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(
-        children: [
-          // 目录选择按钮
-          _buildDirectoryButton(context, ref, currentDirectory),
-
-          const SizedBox(width: 12),
-
-          // 媒体类型切换
-          Expanded(
-            child: _buildMediaTypeToggle(ref),
+    final logoKey = ref.watch(homeLogoKeyProvider);
+    final currentMediaType = ref.watch(currentMediaTypeProvider);
+    
+    return NotificationListener<SizeChangedLayoutNotification>(
+      onNotification: (notification) {
+        // 只在展开状态下更新高度
+        if (!isCollapsed) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final renderBox = _navKey.currentContext?.findRenderObject() as RenderBox?;
+            if (renderBox != null && renderBox.hasSize) {
+              final height = renderBox.size.height;
+              final currentHeight = ref.read(navbarHeightProvider);
+              if (height > currentHeight) {
+                ref.read(navbarHeightProvider.notifier).state = height;
+              }
+            }
+          });
+        }
+        return false;
+      },
+      child: SizeChangedLayoutNotifier(
+        child: Container(
+          key: _navKey,
+          decoration: BoxDecoration(
+            color: ThemeConfig.surfaceColor,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 顶部标题栏（始终显示 logo + 标题，其他元素可折叠）
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Row(
+                  children: [
+                    // Logo 和标题（始终显示）
+                    Row(
+                      children: [
+                        Image.asset(
+                          key: logoKey,
+                          'assets/images/icon.png',
+                          width: 32,
+                          height: 32,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Funk&Love',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: ThemeConfig.primaryBlack,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    // 文件计数（可折叠）
+                    AnimatedOpacity(
+                      opacity: isCollapsed ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: IgnorePointer(
+                        ignoring: isCollapsed,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: ThemeConfig.surfaceContainerColor,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '$fileCount 个',
+                            style: TextStyle(
+                              color: ThemeConfig.accentGray,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // 目录筛选按钮（可折叠）
+                    AnimatedOpacity(
+                      opacity: isCollapsed ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: IgnorePointer(
+                        ignoring: isCollapsed,
+                        child: _buildDirectoryButton(context, ref, currentDirectory),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // 媒体类型 Tab（可折叠）
+              ClipRect(
+                child: AnimatedAlign(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  alignment: Alignment.topCenter,
+                  heightFactor: isCollapsed ? 0.0 : 1.0,
+                  child: AnimatedOpacity(
+                    opacity: isCollapsed ? 0.0 : 1.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: _buildMediaTypeTabs(ref, currentMediaType),
+                  ),
+                ),
+              ),
 
-          const SizedBox(width: 12),
-
-          // 文件计数
-          _buildFileCount(fileCount),
-        ],
+              // 标签筛选（可折叠）
+              ClipRect(
+                child: AnimatedAlign(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  alignment: Alignment.topCenter,
+                  heightFactor: isCollapsed ? 0.0 : 1.0,
+                  child: AnimatedOpacity(
+                    opacity: isCollapsed ? 0.0 : 1.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: const TagFilter(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  /// 构建目录选择按钮
-  Widget _buildDirectoryButton(
-    BuildContext context,
-    WidgetRef ref,
-    String? currentDirectory,
-  ) {
+  Widget _buildDirectoryButton(BuildContext context, WidgetRef ref, String? currentDirectory) {
     final hasDirectory = currentDirectory != null;
     
     return InkWell(
       onTap: () => _showDirectoryPicker(context, ref),
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: hasDirectory
               ? ThemeConfig.primaryColor.withValues(alpha: 0.1)
-              : ThemeConfig.surfaceContainerColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: hasDirectory
-                ? ThemeConfig.primaryColor
-                : ThemeConfig.borderColor,
-          ),
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.folder_outlined,
-              size: 18,
-              color: hasDirectory
-                  ? ThemeConfig.primaryColor
-                  : ThemeConfig.accentGray,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              hasDirectory
-                  ? _formatDirectoryName(currentDirectory)
-                  : '目录',
-              style: TextStyle(
-                color: hasDirectory
-                    ? ThemeConfig.primaryColor
-                    : ThemeConfig.onSurfaceVariantColor,
-                fontSize: 13,
-                fontWeight: hasDirectory ? FontWeight.w500 : FontWeight.normal,
-              ),
+              size: 22,
+              color: hasDirectory ? ThemeConfig.primaryColor : ThemeConfig.accentGray,
             ),
             if (hasDirectory) ...[
-              const SizedBox(width: 6),
+              const SizedBox(width: 4),
               GestureDetector(
-                onTap: () {
-                  ref.read(filesNotifierProvider.notifier).setDirectory(null);
-                },
-                child: Icon(
-                  Icons.close,
-                  size: 16,
-                  color: ThemeConfig.primaryColor,
-                ),
+                onTap: () => ref.read(filesNotifierProvider.notifier).setDirectory(null),
+                child: Icon(Icons.close, size: 16, color: ThemeConfig.primaryColor),
               ),
             ],
           ],
@@ -132,107 +204,48 @@ class FilterBar extends ConsumerWidget {
     );
   }
 
-  /// 格式化目录名称
-  String _formatDirectoryName(String directory) {
-    // 取最后一级目录名
-    final parts = directory.split('/');
-    final name = parts.isNotEmpty ? parts.last : directory;
-    // 限制长度
-    if (name.length > 10) {
-      return '${name.substring(0, 10)}...';
-    }
-    return name;
+  Widget _buildMediaTypeTabs(WidgetRef ref, String currentMediaType) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          _buildMediaTypeTab(ref, '全部', 'all', currentMediaType == 'all'),
+          const SizedBox(width: 24),
+          _buildMediaTypeTab(ref, '图片', 'image', currentMediaType == 'image'),
+          const SizedBox(width: 24),
+          _buildMediaTypeTab(ref, '视频', 'video', currentMediaType == 'video'),
+        ],
+      ),
+    );
   }
 
-  /// 构建媒体类型切换 - 与 Web 端 MediaTypeFilter 风格一致
-  Widget _buildMediaTypeToggle(WidgetRef ref) {
-    final currentMediaType = ref.watch(currentMediaTypeProvider);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: ThemeConfig.surfaceContainerColor,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: ThemeConfig.borderColor),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+  Widget _buildMediaTypeTab(WidgetRef ref, String label, String value, bool isSelected) {
+    return GestureDetector(
+      onTap: () => ref.read(filesNotifierProvider.notifier).setMediaType(value),
+      child: Column(
         children: [
-          _buildMediaTypeButton(
-            ref: ref,
-            label: '全部',
-            value: 'all',
-            isSelected: currentMediaType == 'all',
+          Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? ThemeConfig.primaryColor : ThemeConfig.accentGray,
+              fontSize: 15,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            ),
           ),
-          _buildMediaTypeButton(
-            ref: ref,
-            label: '图片',
-            value: 'image',
-            isSelected: currentMediaType == 'image',
-          ),
-          _buildMediaTypeButton(
-            ref: ref,
-            label: '视频',
-            value: 'video',
-            isSelected: currentMediaType == 'video',
+          const SizedBox(height: 6),
+          Container(
+            height: 3,
+            width: 24,
+            decoration: BoxDecoration(
+              color: isSelected ? ThemeConfig.primaryColor : Colors.transparent,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// 构建媒体类型按钮
-  Widget _buildMediaTypeButton({
-    required WidgetRef ref,
-    required String label,
-    required String value,
-    required bool isSelected,
-  }) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          ref.read(filesNotifierProvider.notifier).setMediaType(value);
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? ThemeConfig.primaryColor : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: isSelected ? Colors.white : ThemeConfig.onSurfaceVariantColor,
-              fontSize: 13,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 构建文件计数
-  Widget _buildFileCount(int count) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: ThemeConfig.surfaceContainerColor,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: ThemeConfig.borderColor),
-      ),
-      child: Text(
-        '$count 个',
-        style: TextStyle(
-          color: ThemeConfig.onSurfaceVariantColor,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  /// 显示目录选择器
   void _showDirectoryPicker(BuildContext context, WidgetRef ref) {
     showModalBottomSheet(
       context: context,

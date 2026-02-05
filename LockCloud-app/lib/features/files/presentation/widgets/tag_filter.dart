@@ -23,24 +23,14 @@ class TagFilter extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: ThemeConfig.borderColor.withValues(alpha: 0.5)),
-        ),
-      ),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: filesState.tags.length,
-        itemBuilder: (context, index) {
-          final tag = filesState.tags[index];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: filesState.tags.map((tag) {
           final isSelected = currentTags.contains(tag.name);
-
           return Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.only(right: 10),
             child: _TagChip(
               name: tag.name,
               count: tag.count,
@@ -54,13 +44,13 @@ class TagFilter extends ConsumerWidget {
               },
             ),
           );
-        },
+        }).toList(),
       ),
     );
   }
 }
 
-/// 标签芯片组件
+/// 标签芯片组件 - 参考设计稿样式
 class _TagChip extends StatelessWidget {
   final String name;
   final int count;
@@ -79,52 +69,50 @@ class _TagChip extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
               ? ThemeConfig.primaryColor
-              : ThemeConfig.surfaceContainerColor,
+              : ThemeConfig.surfaceColor,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isSelected ? ThemeConfig.primaryColor : ThemeConfig.borderColor,
+            width: 1,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 标签图标
-            Icon(
-              Icons.tag,
-              size: 14,
-              color: isSelected ? Colors.white : ThemeConfig.accentGray,
-            ),
-            const SizedBox(width: 4),
+            // 选中时显示小圆点
+            if (isSelected) ...[
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
             // 标签名称
             Text(
               name,
               style: TextStyle(
                 color: isSelected ? Colors.white : ThemeConfig.primaryBlack,
                 fontSize: 13,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(width: 6),
             // 使用次数
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? Colors.white.withValues(alpha: 0.2)
-                    : ThemeConfig.backgroundColor,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  color: isSelected ? Colors.white : ThemeConfig.accentGray,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                ),
+            const SizedBox(width: 6),
+            Text(
+              '$count',
+              style: TextStyle(
+                color: isSelected 
+                    ? Colors.white.withValues(alpha: 0.8) 
+                    : ThemeConfig.accentGray,
+                fontSize: 12,
               ),
             ),
           ],

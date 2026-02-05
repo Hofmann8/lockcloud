@@ -123,7 +123,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     return Scaffold(
       backgroundColor: ThemeConfig.backgroundColor,
       appBar: AppBar(
-        title: Text('上传', style: TextStyle(color: ThemeConfig.primaryBlack)),
+        title: Text('传输', style: TextStyle(color: ThemeConfig.primaryBlack)),
         backgroundColor: ThemeConfig.surfaceColor,
         elevation: 0,
         centerTitle: true,
@@ -153,7 +153,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
         // 文件选择区域
         _buildFilePickerSection(),
 
-        // 上传队列
+        // 传输队列
         if (hasUploadTasks)
           Expanded(
             child: Column(
@@ -163,8 +163,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   child: Row(
                     children: [
+                      Icon(Icons.swap_horiz, size: 20, color: ThemeConfig.primaryColor),
+                      const SizedBox(width: 8),
                       Text(
-                        '上传队列',
+                        '传输队列',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -402,7 +404,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            '暂无上传任务',
+            '暂无传输任务',
             style: TextStyle(
               color: ThemeConfig.onSurfaceVariantColor,
               fontSize: 16,
@@ -410,7 +412,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            '选择文件开始上传',
+            '上传或下载文件时将显示在这里',
             style: TextStyle(
               color: ThemeConfig.accentGray,
               fontSize: 14,

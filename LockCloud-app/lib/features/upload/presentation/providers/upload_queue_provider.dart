@@ -104,13 +104,17 @@ class UploadQueueNotifier extends _$UploadQueueNotifier {
     required UploadMetadata metadata,
   }) {
     final newItems = files.map((file) {
+      // 为每个文件创建独立的 metadata，包含各自的 customFilename
+      final fileMetadata = metadata.copyWith(
+        customFilename: file.customFilename,
+      );
       return UploadQueueItem(
         id: _uuid.v4(),
         localPath: file.path,
         originalFilename: file.name,
         size: file.size,
         contentType: file.mimeType,
-        metadata: metadata,
+        metadata: fileMetadata,
         createdAt: DateTime.now(),
       );
     }).toList();
@@ -429,12 +433,14 @@ class FileInfo {
   final String name;
   final int size;
   final String mimeType;
+  final String? customFilename;
 
   const FileInfo({
     required this.path,
     required this.name,
     required this.size,
     required this.mimeType,
+    this.customFilename,
   });
 }
 

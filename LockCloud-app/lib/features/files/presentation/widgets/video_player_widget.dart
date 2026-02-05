@@ -132,6 +132,9 @@ class VideoPlayerWidget extends ConsumerStatefulWidget {
   /// 全屏状态变化回调
   final void Function(bool isFullscreen)? onFullscreenChanged;
 
+  /// 播放状态变化回调
+  final void Function(VideoPlayerState state)? onStateChanged;
+
   const VideoPlayerWidget({
     super.key,
     required this.fileId,
@@ -139,15 +142,26 @@ class VideoPlayerWidget extends ConsumerStatefulWidget {
     this.thumbhash,
     this.initialFullscreen = false,
     this.onFullscreenChanged,
+    this.onStateChanged,
   });
 
   @override
-  ConsumerState<VideoPlayerWidget> createState() => _VideoPlayerWidgetState();
+  ConsumerState<VideoPlayerWidget> createState() => VideoPlayerWidgetState();
 }
 
-class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
+class VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
   VideoPlayerController? _controller;
   VideoPlayerState _state = const VideoPlayerState();
+  
+  /// 获取当前播放状态
+  VideoPlayerState get state => _state;
+  
+  /// 跳转到指定位置（公开方法）
+  Future<void> seekTo(Duration position) => _seekTo(position);
+  
+  /// 进入全屏（公开方法）
+  Future<void> enterFullscreen() => _enterFullscreen();
+  
   Timer? _hideControlsTimer;
   Timer? _positionUpdateTimer;
   
@@ -292,6 +306,7 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
         errorMessage: value.hasError ? '播放出错' : null,
       );
     });
+    widget.onStateChanged?.call(_state);
   }
 
   /// 开始位置更新定时器
@@ -306,6 +321,7 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
               position: _controller!.value.position,
             );
           });
+          widget.onStateChanged?.call(_state);
         }
       },
     );
@@ -624,10 +640,16 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
 
   /// 构建全屏模式播放器
   Widget _buildFullscreenPlayer() {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: _buildPlayerContent(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _exitFullscreen();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: _buildPlayerContent(),
       ),
     );
   }
@@ -837,6 +859,160 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
 
   /// 构建控制层
   Widget _buildControlsLayer() {
+    // 非全屏模式：简洁UI
+    if (!_state.isFullscreen) {
+      return _buildSimpleControls();
+    }
+    // 全屏模式：完整UI
+    return _buildFullControls();
+  }
+
+  /// 简洁控制层（非全屏）
+  Widget _buildSimpleControls() {
+    return GestureDetector(
+      onTap: _toggleControls,
+      behavior: HitTestBehavior.translucent,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,
+              Colors.transparent,
+              Colors.black.withValues(alpha: 0.5),
+            ],
+            stops: const [0.0, 0.6, 1.0],
+          ),
+        ),
+        child: Stack(
+          children: [
+            // 中间播放按钮
+            Center(
+              child: GestureDetector(
+                onTap: _togglePlayPause,
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _state.isPlaying ? Icons.pause : Icons.play_arrow,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                ),
+              ),
+            ),
+            // 底部进度条和全屏按钮
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 8,
+              child: Row(
+                children: [
+                  // 时间
+                  Text(
+                    _formatDuration(_state.position),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  // 进度条
+                  Expanded(child: _buildSimpleProgressBar()),
+                  const SizedBox(width: 8),
+                  // 时长
+                  Text(
+                    _formatDuration(_state.duration),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  // 全屏按钮
+                  GestureDetector(
+                    onTap: _enterFullscreen,
+                    child: const Icon(Icons.fullscreen, color: Colors.white, size: 24),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 简洁进度条
+  Widget _buildSimpleProgressBar() {
+    final progress = _state.duration.inMilliseconds > 0
+        ? _state.position.inMilliseconds / _state.duration.inMilliseconds
+        : 0.0;
+    final buffered = _state.duration.inMilliseconds > 0
+        ? _state.buffered.inMilliseconds / _state.duration.inMilliseconds
+        : 0.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final barWidth = constraints.maxWidth;
+        return GestureDetector(
+          onTapUp: (details) {
+            final percent = (details.localPosition.dx / barWidth).clamp(0.0, 1.0);
+            final newPosition = Duration(
+              milliseconds: (percent * _state.duration.inMilliseconds).round(),
+            );
+            _seekTo(newPosition);
+          },
+          onHorizontalDragUpdate: (details) {
+            final percent = (details.localPosition.dx / barWidth).clamp(0.0, 1.0);
+            final newPosition = Duration(
+              milliseconds: (percent * _state.duration.inMilliseconds).round(),
+            );
+            _seekTo(newPosition);
+          },
+          child: Container(
+            height: 20,
+            color: Colors.transparent,
+            alignment: Alignment.center,
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                // 背景
+                Container(
+                  height: 3,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(1.5),
+                  ),
+                ),
+                // 缓冲
+                Container(
+                  height: 3,
+                  width: barWidth * buffered.clamp(0.0, 1.0),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(1.5),
+                  ),
+                ),
+                // 进度
+                Container(
+                  height: 3,
+                  width: barWidth * progress.clamp(0.0, 1.0),
+                  decoration: BoxDecoration(
+                    color: ThemeConfig.primaryColor,
+                    borderRadius: BorderRadius.circular(1.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 完整控制层（全屏）
+  Widget _buildFullControls() {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -855,12 +1031,8 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
         children: [
           // 顶部栏
           _buildTopBar(),
-          
           // 中间区域
-          Expanded(
-            child: _buildCenterControls(),
-          ),
-          
+          Expanded(child: _buildCenterControls()),
           // 底部栏
           _buildBottomBar(),
         ],
@@ -868,7 +1040,7 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
     );
   }
 
-  /// 构建顶部栏
+  /// 构建顶部栏（全屏模式）
   Widget _buildTopBar() {
     return SafeArea(
       bottom: false,
@@ -876,30 +1048,24 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           children: [
-            // 返回按钮（全屏模式）
-            if (_state.isFullscreen)
-              IconButton(
-                onPressed: _exitFullscreen,
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-              ),
-            
+            // 返回按钮
+            IconButton(
+              onPressed: _exitFullscreen,
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+            ),
             // 文件名
-            if (_state.isFullscreen)
-              Expanded(
-                child: Text(
-                  widget.filename,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+            Expanded(
+              child: Text(
+                widget.filename,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-            
-            const Spacer(),
-            
+            ),
             // 镜像按钮
             _buildMirrorButton(),
           ],
@@ -1020,82 +1186,80 @@ class _VideoPlayerWidgetState extends ConsumerState<VideoPlayerWidget> {
         ? _state.buffered.inMilliseconds / _state.duration.inMilliseconds
         : 0.0;
 
-    return GestureDetector(
-      onHorizontalDragUpdate: (details) {
-        final box = context.findRenderObject() as RenderBox?;
-        if (box == null) return;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final barWidth = constraints.maxWidth;
         
-        final width = box.size.width - 32; // 减去 padding
-        final position = details.localPosition.dx.clamp(0, width);
-        final percent = position / width;
-        final newPosition = Duration(
-          milliseconds: (percent * _state.duration.inMilliseconds).round(),
+        return GestureDetector(
+          onHorizontalDragUpdate: (details) {
+            final position = details.localPosition.dx.clamp(0.0, barWidth);
+            final percent = position / barWidth;
+            final newPosition = Duration(
+              milliseconds: (percent * _state.duration.inMilliseconds).round(),
+            );
+            _seekTo(newPosition);
+          },
+          onTapUp: (details) {
+            final position = details.localPosition.dx.clamp(0.0, barWidth);
+            final percent = position / barWidth;
+            final newPosition = Duration(
+              milliseconds: (percent * _state.duration.inMilliseconds).round(),
+            );
+            _seekTo(newPosition);
+          },
+          child: Container(
+            height: 24,
+            alignment: Alignment.center,
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                // 背景
+                Container(
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                // 缓冲进度
+                FractionallySizedBox(
+                  widthFactor: bufferedProgress.clamp(0.0, 1.0),
+                  child: Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white38,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                // 播放进度
+                FractionallySizedBox(
+                  widthFactor: progress.clamp(0.0, 1.0),
+                  child: Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: ThemeConfig.primaryColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                // 拖动手柄
+                Positioned(
+                  left: (progress.clamp(0.0, 1.0) * barWidth) - 6,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: ThemeConfig.primaryColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
-        _seekTo(newPosition);
       },
-      onTapUp: (details) {
-        final box = context.findRenderObject() as RenderBox?;
-        if (box == null) return;
-        
-        final width = box.size.width - 32;
-        final position = details.localPosition.dx.clamp(0, width);
-        final percent = position / width;
-        final newPosition = Duration(
-          milliseconds: (percent * _state.duration.inMilliseconds).round(),
-        );
-        _seekTo(newPosition);
-      },
-      child: Container(
-        height: 24,
-        alignment: Alignment.center,
-        child: Stack(
-          alignment: Alignment.centerLeft,
-          children: [
-            // 背景
-            Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // 缓冲进度
-            FractionallySizedBox(
-              widthFactor: bufferedProgress.clamp(0.0, 1.0),
-              child: Container(
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white38,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            // 播放进度
-            FractionallySizedBox(
-              widthFactor: progress.clamp(0.0, 1.0),
-              child: Container(
-                height: 4,
-                decoration: BoxDecoration(
-                  color: ThemeConfig.primaryColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            // 拖动手柄
-            Positioned(
-              left: (progress.clamp(0.0, 1.0) * (MediaQuery.of(context).size.width - 32)) - 6,
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: ThemeConfig.primaryColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 

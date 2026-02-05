@@ -25,7 +25,7 @@ class UploadQueueWidget extends ConsumerWidget {
     if (items.isEmpty) {
       return const Center(
         child: Text(
-          '暂无上传任务',
+          '暂无传输任务',
           style: TextStyle(
             color: ThemeConfig.onSurfaceVariantColor,
             fontSize: 14,

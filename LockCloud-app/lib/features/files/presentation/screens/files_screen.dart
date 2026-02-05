@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/config/theme_config.dart';
 import '../../../../core/storage/image_cache_manager.dart';
 import '../../../../core/storage/preferences_storage.dart';
+import '../../../../shared/providers/splash_state_provider.dart';
 import '../../data/models/file_model.dart';
 import '../../data/services/signed_url_service.dart';
 import '../providers/batch_selection_provider.dart';
@@ -41,19 +42,39 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
   List<FileModel> _latestFiles = const [];
   FileFilters? _lastFilters;
   int _lastFileCount = 0;  // 追踪文件数量变化
+  double _lastScrollOffset = 0;  // 追踪滚动位置
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
 
-    // 初始化加载数据
+    // 等 splash 动画完成后再初始化加载数据，避免动画卡顿
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final state = ref.read(filesNotifierProvider);
-      if (state.files.isEmpty && !state.isLoading) {
-        ref.read(filesNotifierProvider.notifier).initialize();
-      }
+      _initializeWhenReady();
     });
+  }
+  
+  void _initializeWhenReady() {
+    final lottieFinished = ref.read(lottieFinishedProvider);
+    if (lottieFinished) {
+      _startLoadingData();
+    } else {
+      // 监听 Lottie 动画完成
+      ref.listenManual(lottieFinishedProvider, (previous, next) {
+        if (next && !(previous ?? false)) {
+          _startLoadingData();
+        }
+      });
+    }
+  }
+  
+  void _startLoadingData() {
+    if (!mounted) return;
+    final state = ref.read(filesNotifierProvider);
+    if (state.files.isEmpty && !state.isLoading) {
+      ref.read(filesNotifierProvider.notifier).initialize();
+    }
   }
 
   @override
@@ -63,10 +84,29 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
     super.dispose();
   }
 
-  /// 滚动监听 - 无限滚动
+  /// 滚动监听 - 无限滚动 + 折叠导航栏
   void _onScroll() {
     if (_shouldPreload) {
       _loadMoreWithPrefetch();
+    }
+    
+    // 检测滚动方向，控制导航栏折叠
+    final currentOffset = _scrollController.offset;
+    final delta = currentOffset - _lastScrollOffset;
+    
+    // 滚动超过一定阈值才触发折叠/展开
+    if (delta.abs() > 10) {
+      final isCollapsed = ref.read(filterBarCollapsedProvider);
+      
+      if (delta > 0 && !isCollapsed && currentOffset > 50) {
+        // 向下滚动且未折叠，折叠导航栏
+        ref.read(filterBarCollapsedProvider.notifier).state = true;
+      } else if (delta < 0 && isCollapsed) {
+        // 向上滚动且已折叠，展开导航栏
+        ref.read(filterBarCollapsedProvider.notifier).state = false;
+      }
+      
+      _lastScrollOffset = currentOffset;
     }
   }
 
@@ -200,24 +240,32 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
     return Scaffold(
       backgroundColor: ThemeConfig.backgroundColor,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            // 筛选栏
-            const FilterBar(),
-
-            // 文件列表
-            Expanded(
-              child: _buildContent(
-                files: files,
-                isLoading: isLoading,
-                isLoadingMore: isLoadingMore,
-                hasMore: hasMore,
-                error: error,
-              ),
+            // 文件列表（从顶部开始，顶部留出 navbar 空间）
+            Column(
+              children: [
+                Expanded(
+                  child: _buildContent(
+                    files: files,
+                    isLoading: isLoading,
+                    isLoadingMore: isLoadingMore,
+                    hasMore: hasMore,
+                    error: error,
+                  ),
+                ),
+                // 批量操作栏（选择模式下显示）
+                if (isSelectionMode) const BatchActionBar(),
+              ],
             ),
-
-            // 批量操作栏（选择模式下显示）
-            if (isSelectionMode) const BatchActionBar(),
+            
+            // 悬浮的筛选栏
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: FilterBar(),
+            ),
           ],
         ),
       ),
@@ -252,10 +300,13 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
     }
 
     // 文件列表
+    final navHeight = ref.watch(navbarHeightProvider);
     return RefreshIndicator(
       onRefresh: _onRefresh,
       color: ThemeConfig.primaryColor,
       backgroundColor: ThemeConfig.surfaceColor,
+      displacement: 40,  // 标准下拉距离
+      edgeOffset: navHeight,  // 从 navbar 下方开始
       child: _buildFileGrid(
         files: files,
         isLoadingMore: isLoadingMore,
@@ -301,6 +352,16 @@ class _FilesScreenState extends ConsumerState<FilesScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       cacheExtent: cacheExtent,
       slivers: [
+        // 顶部留出 navbar 空间（固定高度，不随折叠变化）
+        SliverToBoxAdapter(
+          child: Consumer(
+            builder: (context, ref, _) {
+              final navHeight = ref.watch(navbarHeightProvider);
+              return SizedBox(height: navHeight);
+            },
+          ),
+        ),
+        
         // 文件网格
         SliverPadding(
           padding: const EdgeInsets.all(_gridPadding),

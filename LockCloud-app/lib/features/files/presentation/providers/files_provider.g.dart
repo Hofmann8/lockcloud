@@ -113,7 +113,7 @@ final hasFiltersProvider = AutoDisposeProvider<bool>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef HasFiltersRef = AutoDisposeProviderRef<bool>;
-String _$filesNotifierHash() => r'c4b32c9f7093ec22a7ba85ccc8741520c6894bdf';
+String _$filesNotifierHash() => r'd92280673bdbafa8fcf99c8031cdbbedca59f84a';
 
 /// 文件列表状态管理器
 ///

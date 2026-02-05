@@ -317,6 +317,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget _buildSettingsSection() {
     final prefs = ref.watch(preferencesStorageSyncProvider);
     final currentMode = prefs?.getImageLoadMode() ?? ImageLoadMode.dataSaver;
+    final autoLoadOriginal = prefs?.isAutoLoadOriginalEnabled() ?? false;
     
     return Container(
       decoration: BoxDecoration(
@@ -333,10 +334,76 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             onTap: () => _showImageLoadModeDialog(currentMode),
           ),
           Divider(height: 1, color: ThemeConfig.borderColor),
+          _buildSwitchSettingItem(
+            icon: Icons.high_quality_outlined,
+            title: '自动加载原图',
+            subtitle: '详情页自动加载原始图片',
+            value: autoLoadOriginal,
+            onChanged: (value) async {
+              await prefs?.setAutoLoadOriginalEnabled(value);
+              if (mounted) setState(() {});
+            },
+          ),
+          Divider(height: 1, color: ThemeConfig.borderColor),
           _buildSettingItem(
             icon: Icons.info_outline,
             title: '关于 LockCloud',
             onTap: () => _showAboutDialog(),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// 构建带开关的设置项
+  Widget _buildSwitchSettingItem({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: ThemeConfig.primaryColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: ThemeConfig.primaryColor, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: ThemeConfig.primaryBlack,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (subtitle != null)
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: ThemeConfig.accentGray,
+                      fontSize: 12,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: ThemeConfig.primaryColor,
           ),
         ],
       ),

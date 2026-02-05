@@ -6,7 +6,27 @@ part of 'app_router.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$appRouterHash() => r'a28cb7ecae2be111c1f97293c464dc652544a77c';
+String _$authChangeNotifierHash() =>
+    r'3c6868197eb2ce1715038c13858d7513fbe341b8';
+
+/// 认证状态通知器 Provider
+///
+/// Copied from [authChangeNotifier].
+@ProviderFor(authChangeNotifier)
+final authChangeNotifierProvider = Provider<AuthChangeNotifier>.internal(
+  authChangeNotifier,
+  name: r'authChangeNotifierProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$authChangeNotifierHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+typedef AuthChangeNotifierRef = ProviderRef<AuthChangeNotifier>;
+String _$appRouterHash() => r'25272607ab611e387b1c3067bd5253aa2c7714e8';
 
 /// 应用路由配置 Provider
 ///
@@ -25,7 +45,7 @@ String _$appRouterHash() => r'a28cb7ecae2be111c1f97293c464dc652544a77c';
 ///
 /// Copied from [appRouter].
 @ProviderFor(appRouter)
-final appRouterProvider = AutoDisposeProvider<GoRouter>.internal(
+final appRouterProvider = Provider<GoRouter>.internal(
   appRouter,
   name: r'appRouterProvider',
   debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
@@ -37,6 +57,6 @@ final appRouterProvider = AutoDisposeProvider<GoRouter>.internal(
 
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
-typedef AppRouterRef = AutoDisposeProviderRef<GoRouter>;
+typedef AppRouterRef = ProviderRef<GoRouter>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

@@ -6,6 +6,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../features/auth/presentation/providers/auth_provider.dart';
 import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/files/presentation/screens/file_detail_screen.dart';
+import '../features/files/presentation/screens/video_detail_screen.dart';
+import '../features/files/presentation/models/file_detail_entry.dart';
 import '../features/home/presentation/screens/home_screen.dart';
 
 part 'app_router.g.dart';
@@ -19,6 +21,36 @@ class AppRoutes {
   static const String upload = '/upload';
   static const String requests = '/requests';
   static const String profile = '/profile';
+}
+
+/// 认证状态变化通知器，用于触发路由刷新
+class AuthChangeNotifier extends ChangeNotifier {
+  bool _isAuthenticated = false;
+  
+  bool get isAuthenticated => _isAuthenticated;
+  
+  set isAuthenticated(bool value) {
+    if (_isAuthenticated != value) {
+      _isAuthenticated = value;
+      notifyListeners();
+    }
+  }
+}
+
+/// 认证状态通知器 Provider
+@Riverpod(keepAlive: true)
+AuthChangeNotifier authChangeNotifier(Ref ref) {
+  final notifier = AuthChangeNotifier();
+  
+  // 监听认证状态变化，更新 notifier
+  ref.listen<bool>(isAuthenticatedProvider, (previous, next) {
+    notifier.isAuthenticated = next;
+  });
+  
+  // 初始化当前状态
+  notifier._isAuthenticated = ref.read(isAuthenticatedProvider);
+  
+  return notifier;
 }
 
 /// 应用路由配置 Provider
@@ -35,16 +67,18 @@ class AppRoutes {
 /// - /files/:id - 文件详情
 /// 
 /// Requirements: 9.3 - 底部导航栏包含四个入口：文件、上传、请求、我的
-@riverpod
+@Riverpod(keepAlive: true)
 GoRouter appRouter(Ref ref) {
-  final isAuth = ref.watch(isAuthenticatedProvider);
+  final authNotifier = ref.watch(authChangeNotifierProvider);
   
   return GoRouter(
     initialLocation: AppRoutes.home,
     debugLogDiagnostics: true,
+    refreshListenable: authNotifier,
     
     // 认证重定向逻辑
     redirect: (context, state) {
+      final isAuth = authNotifier.isAuthenticated;
       final isLoginRoute = state.matchedLocation == AppRoutes.login;
       
       // 未认证且不在登录页，重定向到登录页
@@ -75,13 +109,22 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) => const HomeScreen(),
         routes: [
           // 文件详情（嵌套路由）
+          // 根据文件类型自动选择图片详情页或视频详情页
           GoRoute(
             path: 'files/:id',
             name: 'fileDetail',
             builder: (context, state) {
               final fileIdStr = state.pathParameters['id'] ?? '0';
               final fileId = int.tryParse(fileIdStr) ?? 0;
-              return FileDetailScreen(fileId: fileId);
+              final entry = state.extra is FileDetailEntry
+                  ? state.extra as FileDetailEntry
+                  : null;
+              
+              // 根据 entry.isVideo 决定使用哪个详情页
+              if (entry?.isVideo == true) {
+                return VideoDetailScreen(fileId: fileId, entry: entry);
+              }
+              return FileDetailScreen(fileId: fileId, entry: entry);
             },
           ),
         ],

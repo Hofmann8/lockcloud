@@ -112,6 +112,7 @@ class PreferencesStorage {
   static const String _keyShowFileSize = 'show_file_size';
   static const String _keyShowUploadDate = 'show_upload_date';
   static const String _keyImageLoadMode = 'image_load_mode';
+  static const String _keyAutoLoadOriginal = 'auto_load_original';
 
   // 最后选择的目录/筛选条件
   static const String _keyLastDirectory = 'last_directory';
@@ -288,6 +289,18 @@ class PreferencesStorage {
   /// 设置图片加载模式
   Future<bool> setImageLoadMode(ImageLoadMode mode) async {
     return _prefs.setString(_keyImageLoadMode, mode.value);
+  }
+
+  /// 获取是否自动加载原图
+  ///
+  /// 默认值：false（不自动加载原图，需手动点击）
+  bool isAutoLoadOriginalEnabled() {
+    return _prefs.getBool(_keyAutoLoadOriginal) ?? false;
+  }
+
+  /// 设置是否自动加载原图
+  Future<bool> setAutoLoadOriginalEnabled(bool enabled) async {
+    return _prefs.setBool(_keyAutoLoadOriginal, enabled);
   }
 
   // ==================== 最后选择的目录/筛选条件 ====================

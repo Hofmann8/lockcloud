@@ -25,6 +25,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
   bool _isLoading = false;
   bool _obscurePassword = true;
   
+  // 是否需要播放动画（只有首次启动才播放）
+  late bool _shouldPlayAnimation;
+  
   // 移动logo动画
   late AnimationController _logoMoveController;
   late Animation<double> _logoPositionAnimation;
@@ -41,6 +44,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
   @override
   void initState() {
     super.initState();
+    
+    // 检查是否是首次启动，决定是否播放动画
+    _shouldPlayAnimation = ref.read(isFirstLaunchProvider);
     
     // Logo移动动画
     _logoMoveController = AnimationController(
@@ -89,8 +95,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
       if (status == AnimationStatus.completed && mounted) {
         setState(() => _showMovingLogo = false);
         _fadeController.forward();
+        // 动画播放完成后标记不再是首次启动
+        ref.read(isFirstLaunchProvider.notifier).state = false;
       }
     });
+    
+    // 如果不需要播放动画，直接显示内容
+    if (!_shouldPlayAnimation) {
+      _fadeController.value = 1.0;  // 直接设置为完成状态
+    }
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAuthState();
@@ -183,17 +196,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
       }
     });
     
-    // 监听开屏动画完成，触发logo移动动画
-    ref.listen<bool>(splashCompletedProvider, (previous, next) {
-      if (next && !_logoMoveController.isAnimating && _logoMoveController.value == 0) {
-        _startLogoAnimation();
-      }
-    });
+    // 监听开屏动画完成，触发logo移动动画（只有首次启动才播放）
+    if (_shouldPlayAnimation) {
+      ref.listen<bool>(splashCompletedProvider, (previous, next) {
+        if (next && !_logoMoveController.isAnimating && _logoMoveController.value == 0) {
+          _startLogoAnimation();
+        }
+      });
+    }
 
     final authState = ref.watch(authNotifierProvider);
     final isAuthLoading = authState is AuthStateLoading;
     final isDisabled = _isLoading || isAuthLoading;
-    final logoAnimationDone = _logoMoveController.isCompleted;
+    // 不播放动画时 logo 直接显示，否则等动画完成
+    final logoAnimationDone = !_shouldPlayAnimation || _logoMoveController.isCompleted;
     
     final screenSize = MediaQuery.of(context).size;
     final screenCenter = Offset(screenSize.width / 2, screenSize.height / 2);

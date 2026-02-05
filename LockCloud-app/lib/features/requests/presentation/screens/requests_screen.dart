@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/config/theme_config.dart';
+import '../../../../shared/providers/splash_state_provider.dart';
 import '../providers/requests_provider.dart';
 import '../widgets/request_card.dart';
 
-/// 请求管理页面 - 与 Web 端 requests 页面风格一致
+/// 请求管理页面
 ///
 /// 显示收到/发出的请求列表，支持：
-/// - 收到/发出 Tab 切换
+/// - 收到/发出 Tab 切换（胶囊样式）
 /// - 状态筛选（全部/待处理/已批准/已拒绝）
 /// - 下拉刷新
 /// - 无限滚动加载更多
@@ -19,40 +20,38 @@ class RequestsScreen extends ConsumerStatefulWidget {
   ConsumerState<RequestsScreen> createState() => _RequestsScreenState();
 }
 
-class _RequestsScreenState extends ConsumerState<RequestsScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _RequestsScreenState extends ConsumerState<RequestsScreen> {
   final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(_onTabChanged);
     _scrollController.addListener(_onScroll);
 
-    // 初始化加载数据
+    // 等 Lottie 动画完成后再加载数据
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(requestsNotifierProvider.notifier).initialize();
+      _initializeWhenReady();
     });
+  }
+  
+  void _initializeWhenReady() {
+    final lottieFinished = ref.read(lottieFinishedProvider);
+    if (lottieFinished) {
+      ref.read(requestsNotifierProvider.notifier).initialize();
+    } else {
+      ref.listenManual(lottieFinishedProvider, (previous, next) {
+        if (next && !(previous ?? false)) {
+          ref.read(requestsNotifierProvider.notifier).initialize();
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
-    _tabController.removeListener(_onTabChanged);
-    _tabController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
-  }
-
-  /// Tab 切换监听
-  void _onTabChanged() {
-    if (_tabController.indexIsChanging) return;
-
-    final tab =
-        _tabController.index == 0 ? RequestTab.received : RequestTab.sent;
-    ref.read(requestsNotifierProvider.notifier).switchTab(tab);
   }
 
   /// 滚动监听 - 无限滚动
@@ -83,7 +82,6 @@ class _RequestsScreenState extends ConsumerState<RequestsScreen>
   @override
   Widget build(BuildContext context) {
     final requestsState = ref.watch(requestsNotifierProvider);
-    final pendingCount = ref.watch(pendingRequestCountProvider);
 
     return Scaffold(
       backgroundColor: ThemeConfig.backgroundColor,
@@ -92,59 +90,28 @@ class _RequestsScreenState extends ConsumerState<RequestsScreen>
         backgroundColor: ThemeConfig.surfaceColor,
         elevation: 0,
         centerTitle: true,
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: ThemeConfig.primaryColor,
-          indicatorWeight: 3,
-          labelColor: ThemeConfig.primaryColor,
-          unselectedLabelColor: ThemeConfig.accentGray,
-          labelStyle: const TextStyle(fontWeight: FontWeight.w600),
-          tabs: [
-            Tab(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('收到的'),
-                  if (pendingCount > 0) ...[
-                    const SizedBox(width: 6),
-                    _buildBadge(pendingCount),
-                  ],
-                ],
-              ),
-            ),
-            const Tab(text: '发出的'),
-          ],
-        ),
       ),
       body: Column(
         children: [
+          // 胶囊 Tab 切换
+          _buildCapsuleTabBar(requestsState.currentTab),
+          
           // 状态筛选栏
           _buildStatusFilter(requestsState.statusFilter),
 
           // 请求列表
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                // 收到的请求
-                _buildRequestList(
-                  requests: requestsState.receivedRequests,
-                  isLoading: requestsState.isLoading,
-                  isLoadingMore: requestsState.isLoadingMore,
-                  hasMore: requestsState.receivedHasMore,
-                  error: requestsState.error,
-                  isReceived: true,
-                ),
-                // 发出的请求
-                _buildRequestList(
-                  requests: requestsState.sentRequests,
-                  isLoading: requestsState.isLoading,
-                  isLoadingMore: requestsState.isLoadingMore,
-                  hasMore: requestsState.sentHasMore,
-                  error: requestsState.error,
-                  isReceived: false,
-                ),
-              ],
+            child: _buildRequestList(
+              requests: requestsState.currentTab == RequestTab.received
+                  ? requestsState.receivedRequests
+                  : requestsState.sentRequests,
+              isLoading: requestsState.isLoading,
+              isLoadingMore: requestsState.isLoadingMore,
+              hasMore: requestsState.currentTab == RequestTab.received
+                  ? requestsState.receivedHasMore
+                  : requestsState.sentHasMore,
+              error: requestsState.error,
+              isReceived: requestsState.currentTab == RequestTab.received,
             ),
           ),
         ],
@@ -152,19 +119,112 @@ class _RequestsScreenState extends ConsumerState<RequestsScreen>
     );
   }
 
+  /// 构建胶囊样式 Tab 切换（滑动效果）
+  Widget _buildCapsuleTabBar(RequestTab currentTab) {
+    final pendingCount = ref.watch(pendingRequestCountProvider);
+    final isReceived = currentTab == RequestTab.received;
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: ThemeConfig.surfaceColor,
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+          color: ThemeConfig.surfaceContainerColor,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final tabWidth = constraints.maxWidth / 2;
+            return Stack(
+              children: [
+                // 滑动的选中背景
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  left: isReceived ? 0 : tabWidth,
+                  top: 0,
+                  bottom: 0,
+                  width: tabWidth,
+                  child: Container(
+                    margin: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: ThemeConfig.primaryColor,
+                      borderRadius: BorderRadius.circular(19),
+                    ),
+                  ),
+                ),
+                // Tab 文字
+                Row(
+                  children: [
+                    // 收到的
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => ref.read(requestsNotifierProvider.notifier).switchTab(RequestTab.received),
+                        behavior: HitTestBehavior.opaque,
+                        child: Center(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 200),
+                                style: TextStyle(
+                                  color: isReceived ? Colors.white : ThemeConfig.onSurfaceVariantColor,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                                child: const Text('收到的'),
+                              ),
+                              if (pendingCount > 0 && !isReceived) ...[
+                                const SizedBox(width: 6),
+                                _buildBadge(pendingCount),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 发出的
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => ref.read(requestsNotifierProvider.notifier).switchTab(RequestTab.sent),
+                        behavior: HitTestBehavior.opaque,
+                        child: Center(
+                          child: AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 200),
+                            style: TextStyle(
+                              color: !isReceived ? Colors.white : ThemeConfig.onSurfaceVariantColor,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                            child: const Text('发出的'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   /// 构建待处理数量徽章
   Widget _buildBadge(int count) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: ThemeConfig.errorColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         count > 99 ? '99+' : count.toString(),
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -181,7 +241,7 @@ class _RequestsScreenState extends ConsumerState<RequestsScreen>
     ];
 
     return Container(
-      height: 56,
+      height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: ThemeConfig.surfaceColor,
@@ -189,43 +249,41 @@ class _RequestsScreenState extends ConsumerState<RequestsScreen>
           bottom: BorderSide(color: ThemeConfig.borderColor),
         ),
       ),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: filters.length,
-        itemBuilder: (context, index) {
-          final (value, label) = filters[index];
+      child: Row(
+        children: filters.map((filter) {
+          final (value, label) = filter;
           final isSelected = currentFilter == value;
 
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-            child: FilterChip(
-              label: Text(label),
-              selected: isSelected,
-              onSelected: (_) {
-                ref
-                    .read(requestsNotifierProvider.notifier)
-                    .setStatusFilter(value);
-              },
-              selectedColor: ThemeConfig.primaryColor.withValues(alpha: 0.15),
-              checkmarkColor: ThemeConfig.primaryColor,
-              labelStyle: TextStyle(
-                color: isSelected
-                    ? ThemeConfig.primaryColor
-                    : ThemeConfig.onSurfaceVariantColor,
-                fontSize: 13,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
-              backgroundColor: ThemeConfig.surfaceContainerColor,
-              side: BorderSide(
-                color: isSelected ? ThemeConfig.primaryColor : ThemeConfig.borderColor,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => ref.read(requestsNotifierProvider.notifier).setStatusFilter(value),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? ThemeConfig.primaryColor
+                      : ThemeConfig.surfaceContainerColor,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: isSelected
+                        ? ThemeConfig.primaryColor
+                        : ThemeConfig.borderColor,
+                  ),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : ThemeConfig.onSurfaceVariantColor,
+                    fontSize: 13,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
               ),
             ),
           );
-        },
+        }).toList(),
       ),
     );
   }

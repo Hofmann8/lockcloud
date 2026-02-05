@@ -1,13 +1,18 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_thumbhash/flutter_thumbhash.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/config/theme_config.dart';
+import '../../../../core/storage/image_cache_manager.dart';
+import '../../../../core/storage/preferences_storage.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../data/models/file_model.dart';
 import '../../data/repositories/files_repository.dart';
 import '../../data/repositories/tags_repository.dart';
 import '../../data/services/signed_url_service.dart';
+import '../models/file_detail_entry.dart';
 import '../providers/files_provider.dart';
 import '../widgets/image_viewer.dart';
 import '../widgets/request_edit_dialog.dart';
@@ -16,80 +21,165 @@ import '../widgets/video_player_widget.dart';
 
 /// 文件详情页面
 ///
-/// 根据文件类型显示图片预览或视频播放器，并显示文件元数据。
-/// 支持：
-/// - 图片预览（可缩放）
-/// - 视频播放（HLS 流媒体）
-/// - 文件元数据展示
-/// - 相邻文件导航（左右滑动）
-/// - 文件操作（编辑/删除/请求编辑）
-///
-/// **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
+/// 新版UI设计：
+/// - 全屏图片/视频预览
+/// - 浮动信息栏（上滑呼出，点击图片或下滑隐藏）
+/// - 左右滑动切换文件（带平滑动画）
+/// - 预加载相邻文件详情信息
 class FileDetailScreen extends ConsumerStatefulWidget {
   final int fileId;
+  final FileDetailEntry? entry;
 
   const FileDetailScreen({
     super.key,
     required this.fileId,
+    this.entry,
   });
 
   @override
   ConsumerState<FileDetailScreen> createState() => _FileDetailScreenState();
 }
 
-class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
+class _FileDetailScreenState extends ConsumerState<FileDetailScreen>
+    with SingleTickerProviderStateMixin {
+  // 当前显示的文件
   FileModel? _file;
-  AdjacentFiles? _adjacentFiles;
   bool _isLoading = true;
   String? _error;
-  bool _showMetadata = true;
-  String? _imageSignedUrl; // 图片签名URL
+  String? _imageSignedUrl;
+  String? _originalImageUrl;
+  bool _isLoadingOriginal = false;
+  bool _showOriginal = false;
+  String? _displayThumbhash;
+  
+  // 记录进入时的文件信息，用于 Hero 动画
+  late FileDetailEntry _entry;
+  late int _entryFileId;
+  
+  // 信息栏显示状态
+  bool _showInfoPanel = false;
+  bool _isReady = false;
+  late AnimationController _infoPanelController;
+  late Animation<Offset> _infoPanelSlideAnimation;
+  late Animation<double> _imageOffsetAnimation;
+  
+  // 信息栏高度
+  static const double _infoPanelHeight = 380;
 
   @override
   void initState() {
     super.initState();
+    _entry = widget.entry ?? FileDetailEntry(fileId: widget.fileId);
+    _entryFileId = _entry.fileId;
+    _displayThumbhash = _entry.thumbhash;
+    
+    _infoPanelController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _infoPanelSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _infoPanelController,
+      curve: Curves.easeOutCubic,
+    ));
+    _imageOffsetAnimation = Tween<double>(
+      begin: 0,
+      end: -_infoPanelHeight / 2,
+    ).animate(CurvedAnimation(
+      parent: _infoPanelController,
+      curve: Curves.easeOutCubic,
+    ));
+    
     _loadFileDetail();
   }
 
+  @override
+  void didUpdateWidget(covariant FileDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 如果 fileId 变了，重新加载
+    if (oldWidget.fileId != widget.fileId) {
+      _entry = widget.entry ?? FileDetailEntry(fileId: widget.fileId);
+      _entryFileId = _entry.fileId;
+      _displayThumbhash = _entry.thumbhash;
+      _isReady = false;
+      _showInfoPanel = false;
+      _infoPanelController.reset();
+      _loadFileDetail();
+    }
+  }
+
+  @override
+  void dispose() {
+    _infoPanelController.dispose();
+    super.dispose();
+  }
+
+  void _toggleInfoPanel() {
+    setState(() {
+      _showInfoPanel = !_showInfoPanel;
+      if (_showInfoPanel) {
+        _infoPanelController.forward();
+      } else {
+        _infoPanelController.reverse();
+      }
+    });
+  }
+
+  void _hideInfoPanel() {
+    if (_showInfoPanel) {
+      setState(() => _showInfoPanel = false);
+      _infoPanelController.reverse();
+    }
+  }
+
+  void _showInfoPanelIfHidden() {
+    if (!_showInfoPanel) {
+      setState(() => _showInfoPanel = true);
+      _infoPanelController.forward();
+    }
+  }
+
   Future<void> _loadFileDetail() async {
+    final useEntryPreview = widget.fileId == _entryFileId &&
+        _entry.thumbnailUrl != null &&
+        _entry.thumbnailUrl!.isNotEmpty;
     setState(() {
       _isLoading = true;
       _error = null;
-      _imageSignedUrl = null;
+      _imageSignedUrl = useEntryPreview ? _entry.thumbnailUrl : null;
+      _originalImageUrl = null;
+      _showOriginal = false;
     });
 
     try {
       final repository = ref.read(filesRepositoryProvider);
-      final filesState = ref.read(filesNotifierProvider);
-
-      // 并行加载文件详情和相邻文件
-      final results = await Future.wait([
-        repository.getFileDetail(widget.fileId),
-        repository.getAdjacentFiles(widget.fileId, filesState.filters),
-      ]);
-
-      final file = results[0] as FileModel;
-      
-      // 如果是图片，获取签名URL
-      String? signedUrl;
-      if (file.isImage) {
-        try {
-          final signedUrlService = ref.read(signedUrlServiceProvider);
-          signedUrl = await signedUrlService.getSignedUrl(
-            file.id,
-            style: StylePreset.original, // 原图用于预览
-          );
-        } catch (e) {
-          // 签名URL获取失败，继续显示页面
-        }
-      }
+      final file = await repository.getFileDetail(widget.fileId);
+      final mergedFile = _mergeThumbhash(file, _entry.thumbhash);
 
       if (mounted) {
         setState(() {
-          _file = file;
-          _adjacentFiles = results[1] as AdjacentFiles;
-          _imageSignedUrl = signedUrl;
+          _file = mergedFile;
           _isLoading = false;
+        });
+        
+        if (mergedFile.isImage) {
+          if (!useEntryPreview) {
+            _requestAndApplyPreviewUrl(mergedFile.id);
+          }
+          _checkAutoLoadOriginal();
+        }
+        
+        // 数据加载完成，延迟后显示UI并呼出信息栏
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            setState(() {
+              _isReady = true;
+              _showInfoPanel = true;
+            });
+            _infoPanelController.forward();
+          }
         });
       }
     } catch (e) {
@@ -102,19 +192,63 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
     }
   }
 
-
-  /// 导航到相邻文件
-  ///
-  /// **Validates: Requirements 4.5**
-  void _navigateToFile(int fileId) {
-    context.pushReplacement('/files/$fileId');
+  FileModel _mergeThumbhash(FileModel file, String? fallbackThumbhash) {
+    final hasThumbhash = file.thumbhash != null && file.thumbhash!.isNotEmpty;
+    final hasFallback = fallbackThumbhash != null && fallbackThumbhash.isNotEmpty;
+    if (!hasThumbhash && hasFallback) {
+      return file.copyWith(thumbhash: fallbackThumbhash);
+    }
+    return file;
   }
 
-  /// 切换元数据显示
-  void _toggleMetadata() {
-    setState(() {
-      _showMetadata = !_showMetadata;
-    });
+  Future<void> _requestAndApplyPreviewUrl(int fileId) async {
+    try {
+      final signedUrlService = ref.read(signedUrlServiceProvider);
+      final url = await signedUrlService.getSignedUrl(
+        fileId,
+        style: StylePreset.previewdesktop,
+      );
+      if (mounted && url.isNotEmpty) {
+        setState(() {
+          _imageSignedUrl = url;
+        });
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+  }
+
+  void _checkAutoLoadOriginal() {
+    final prefs = ref.read(preferencesStorageSyncProvider);
+    if (prefs?.isAutoLoadOriginalEnabled() == true) {
+      _loadOriginalImage();
+    }
+  }
+
+  Future<void> _loadOriginalImage() async {
+    if (_file == null || !_file!.isImage || _isLoadingOriginal) return;
+    
+    setState(() => _isLoadingOriginal = true);
+    
+    try {
+      final signedUrlService = ref.read(signedUrlServiceProvider);
+      final originalUrl = await signedUrlService.getSignedUrl(
+        _file!.id,
+        style: StylePreset.original,
+      );
+      
+      if (mounted) {
+        setState(() {
+          _originalImageUrl = originalUrl;
+          _showOriginal = true;
+          _isLoadingOriginal = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingOriginal = false);
+      }
+    }
   }
 
   String _getErrorMessage(dynamic e) {
@@ -127,57 +261,14 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: ThemeConfig.backgroundColor,
-      extendBodyBehindAppBar: true,
-      appBar: _buildAppBar(),
+      backgroundColor: Colors.white,
       body: _buildBody(),
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      leading: IconButton(
-        icon: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.black54,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
-        ),
-        onPressed: () => context.pop(),
-      ),
-      actions: [
-        if (_file != null) ...[
-          IconButton(
-            icon: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Icon(
-                _showMetadata ? Icons.info : Icons.info_outline,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-            onPressed: _toggleMetadata,
-          ),
-        ],
-      ],
     );
   }
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(
-          color: ThemeConfig.primaryColor,
-        ),
-      );
+      return _buildLoadingState();
     }
 
     if (_error != null) {
@@ -189,177 +280,180 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
     }
 
     return GestureDetector(
-      onHorizontalDragEnd: _onHorizontalDragEnd,
-      child: Stack(
-        children: [
-          // 媒体预览
-          _buildMediaPreview(),
-
-          // 元数据面板
-          if (_showMetadata)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _buildMetadataPanel(),
+      onTap: _toggleInfoPanel,
+      onVerticalDragEnd: _onVerticalDragEnd,
+      child: SizedBox.expand(
+        child: Stack(
+          children: [
+            // 全屏媒体预览（带偏移动画）
+            AnimatedBuilder(
+              animation: _imageOffsetAnimation,
+              builder: (context, child) {
+                return Positioned.fill(
+                  child: Transform.translate(
+                    offset: Offset(0, _imageOffsetAnimation.value),
+                    child: _buildMediaContent(),
+                  ),
+                );
+              },
             ),
-
-          // 相邻文件导航指示器
-          _buildNavigationIndicators(),
-        ],
-      ),
-    );
-  }
-
-  /// 处理水平滑动
-  ///
-  /// **Validates: Requirements 4.5**
-  void _onHorizontalDragEnd(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-
-    if (velocity > 300 && _adjacentFiles?.previous != null) {
-      // 向右滑动，显示上一个文件
-      _navigateToFile(_adjacentFiles!.previous!.id);
-    } else if (velocity < -300 && _adjacentFiles?.next != null) {
-      // 向左滑动，显示下一个文件
-      _navigateToFile(_adjacentFiles!.next!.id);
-    }
-  }
-
-  /// 构建媒体预览
-  ///
-  /// **Validates: Requirements 4.2, 4.3**
-  Widget _buildMediaPreview() {
-    final file = _file!;
-
-    if (file.isImage) {
-      return ImageViewer(
-        imageUrl: _imageSignedUrl ?? '',
-        thumbhash: file.thumbhash,
-      );
-    } else if (file.isVideo) {
-      return VideoPlayerWidget(
-        fileId: file.id,
-        filename: file.originalFilename ?? file.filename,
-        thumbhash: file.thumbhash,
-        onFullscreenChanged: (isFullscreen) {
-          // 全屏状态变化时可以隐藏/显示 AppBar
-          setState(() {
-            _showMetadata = !isFullscreen;
-          });
-        },
-      );
-    } else {
-      return _buildUnsupportedPreview();
-    }
-  }
-
-  /// 不支持的文件类型预览
-  Widget _buildUnsupportedPreview() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.insert_drive_file,
-            size: 80,
-            color: ThemeConfig.onSurfaceVariantColor,
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            '不支持预览此文件类型',
-            style: TextStyle(
-              color: ThemeConfig.onSurfaceVariantColor,
-              fontSize: 16,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-  /// 构建元数据面板
-  ///
-  /// **Validates: Requirements 4.4**
-  Widget _buildMetadataPanel() {
-    final file = _file!;
-    final currentUser = ref.watch(currentUserProvider);
-    final isOwner = currentUser?.id == file.uploaderId;
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.transparent,
-            Colors.black.withValues(alpha: 0.8),
+            // 顶部导航栏
+            _buildTopBar(),
+            // 浮动信息栏
+            _buildFloatingInfoPanel(),
           ],
         ),
       ),
-      child: SafeArea(
-        top: false,
+    );
+  }
+
+  /// 构建媒体内容
+  Widget _buildMediaContent() {
+    final file = _file!;
+    final imageUrl = _showOriginal && _originalImageUrl != null 
+        ? _originalImageUrl! 
+        : (_imageSignedUrl ?? '');
+    final thumbhash = _displayThumbhash ?? file.thumbhash;
+    
+    Widget content;
+    
+    if (file.isImage) {
+      final cacheKey = widget.fileId == _entryFileId &&
+              _entry.thumbnailUrl != null &&
+              imageUrl == _entry.thumbnailUrl
+          ? _entry.thumbnailCacheKey
+          : null;
+      
+      content = ImageViewer(
+        imageUrl: imageUrl,
+        thumbhash: thumbhash,
+        cacheKey: cacheKey,
+      );
+    } else if (file.isVideo) {
+      content = VideoPlayerWidget(
+        fileId: file.id,
+        filename: file.filename,
+        thumbhash: thumbhash,
+        onFullscreenChanged: (_) {},
+      );
+    } else {
+      content = _buildUnsupportedPreview();
+    }
+    
+    return Hero(
+      tag: 'file_image_$_entryFileId',
+      child: content,
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Stack(
+      children: [
+        Positioned.fill(child: _buildEntryHeroPreview()),
+        const Center(
+          child: CircularProgressIndicator(color: ThemeConfig.primaryColor),
+        ),
+        _buildTopBar(showMore: false),
+      ],
+    );
+  }
+
+  Widget _buildEntryHeroPreview() {
+    return Hero(
+      tag: 'file_image_$_entryFileId',
+      child: _buildEntryPreviewContent(),
+    );
+  }
+
+  Widget _buildEntryPreviewContent() {
+    if (widget.fileId != _entryFileId) {
+      return Container(color: ThemeConfig.backgroundColor);
+    }
+
+    final url = _entry.thumbnailUrl;
+    if (url != null && url.isNotEmpty) {
+      return Container(
+        color: ThemeConfig.backgroundColor,
+        alignment: Alignment.center,
+        child: CachedNetworkImage(
+          imageUrl: url,
+          fit: BoxFit.contain,
+          cacheManager: LockCloudImageCacheManager.instance,
+          cacheKey: _entry.thumbnailCacheKey,
+          placeholder: (context, _) => _buildEntryPlaceholder(),
+          errorWidget: (context, _, __) => _buildEntryPlaceholder(),
+        ),
+      );
+    }
+
+    return _buildEntryPlaceholder();
+  }
+
+  Widget _buildEntryPlaceholder() {
+    final thumbhash = _entry.thumbhash;
+    if (thumbhash != null && thumbhash.isNotEmpty) {
+      try {
+        final hash = ThumbHash.fromBase64(thumbhash);
+        return Image(
+          image: hash.toImage(),
+          fit: BoxFit.contain,
+          width: double.infinity,
+          height: double.infinity,
+          gaplessPlayback: true,
+        );
+      } catch (e) {
+        // Ignore thumbhash decode failures.
+      }
+    }
+
+    return Container(
+      color: ThemeConfig.surfaceContainerColor,
+      child: Center(
+        child: Icon(
+          _entry.isVideo ? Icons.videocam_outlined : Icons.image_outlined,
+          size: 48,
+          color: ThemeConfig.accentGray.withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+
+  /// 顶部导航栏
+  Widget _buildTopBar({bool showMore = true}) {
+    return SafeArea(
+      child: AnimatedOpacity(
+        opacity: _isReady ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 200),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // 文件名
-              Text(
-                file.originalFilename ?? file.filename,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              IconButton(
+                onPressed: _isReady ? () => context.pop() : null,
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 12),
-
-              // 元数据行
-              _buildMetadataRow(Icons.storage, '大小', file.formattedSize),
-              if (file.uploader != null)
-                _buildMetadataRow(Icons.person, '上传者', file.uploader!.name),
-              _buildMetadataRow(Icons.access_time, '上传时间', _formatDateTime(file.uploadedAt)),
-              if (file.activityDate != null)
-                _buildMetadataRow(Icons.event, '活动日期', file.activityDate!),
-              if (file.activityTypeDisplay != null)
-                _buildMetadataRow(Icons.category, '活动类型', file.activityTypeDisplay!),
-              if (file.activityName != null)
-                _buildMetadataRow(Icons.label, '活动名称', file.activityName!),
-
-              // 标签
-              if (file.freeTags.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: file.freeTags.map((tag) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: ThemeConfig.primaryColor.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        tag.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ],
-
-              const SizedBox(height: 16),
-
-              // 操作按钮
-              _buildActionButtons(isOwner),
+              if (showMore)
+                IconButton(
+                  onPressed: _isReady ? _showMoreOptions : null,
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.more_horiz, color: Colors.white, size: 20),
+                  ),
+                )
+              else
+                const SizedBox(width: 40, height: 40),
             ],
           ),
         ),
@@ -367,36 +461,188 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
     );
   }
 
-  Widget _buildMetadataRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
+  /// 处理垂直滑动显示/隐藏信息栏
+  void _onVerticalDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+
+    if (velocity < -300) {
+      _showInfoPanelIfHidden();
+    } else if (velocity > 300) {
+      _hideInfoPanel();
+    }
+  }
+
+  Widget _buildUnsupportedPreview() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 16, color: Colors.grey[400]),
-          const SizedBox(width: 8),
+          Icon(Icons.insert_drive_file, size: 80, color: ThemeConfig.accentGray),
+          const SizedBox(height: 16),
           Text(
-            '$label: ',
-            style: TextStyle(
-              color: Colors.grey[400],
-              fontSize: 14,
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+            '不支持预览此文件类型',
+            style: TextStyle(color: ThemeConfig.accentGray, fontSize: 16),
           ),
         ],
       ),
     );
   }
 
+  /// 浮动信息栏
+  Widget _buildFloatingInfoPanel() {
+    final file = _file!;
+    final currentUser = ref.watch(currentUserProvider);
+    final isOwner = currentUser?.id == file.uploaderId;
+
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: SlideTransition(
+        position: _infoPanelSlideAnimation,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 拖动指示器
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: ThemeConfig.borderColor,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  
+                  // 文件名（命名后的）
+                  Text(
+                    file.filename,
+                    style: TextStyle(
+                      color: ThemeConfig.primaryBlack,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // 上传者和时间
+                  _buildUploaderInfo(file),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // 详情信息
+                  if (file.activityName != null && file.activityName!.isNotEmpty)
+                    _buildInfoItem(
+                      icon: Icons.event_outlined,
+                      label: '活动名称：',
+                      value: file.activityName!,
+                    ),
+                  
+                  if (file.activityName != null && file.activityName!.isNotEmpty)
+                    const SizedBox(height: 8),
+                  
+                  _buildInfoItem(
+                    icon: Icons.category_outlined,
+                    label: '活动类型：',
+                    value: file.activityTypeDisplay ?? '-',
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  _buildInfoItem(
+                    icon: Icons.calendar_today_outlined,
+                    label: '活动日期：',
+                    value: file.activityDate ?? '-',
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  _buildInfoItem(
+                    icon: Icons.insert_drive_file_outlined,
+                    label: '原始文件名：',
+                    value: file.originalFilename ?? file.filename,
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  _buildInfoItem(
+                    icon: Icons.data_usage_outlined,
+                    label: '大小：',
+                    value: file.formattedSize,
+                  ),
+                  
+                  // 标签
+                  if (file.freeTags.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: file.freeTags.map((tag) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: ThemeConfig.surfaceContainerColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '#${tag.name}',
+                          style: TextStyle(
+                            color: ThemeConfig.primaryBlack,
+                            fontSize: 12,
+                          ),
+                        ),
+                      )).toList(),
+                    ),
+                  ],
+                  
+                  const SizedBox(height: 20),
+                  
+                  // 底部操作按钮
+                  _buildActionButtons(isOwner),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 构建上传者信息
+  Widget _buildUploaderInfo(FileModel file) {
+    return Row(
+      children: [
+        Icon(Icons.person_outline, size: 16, color: ThemeConfig.accentGray),
+        const SizedBox(width: 4),
+        Text(
+          file.uploader?.name ?? '未知',
+          style: TextStyle(color: ThemeConfig.accentGray, fontSize: 13),
+        ),
+        const SizedBox(width: 16),
+        Icon(Icons.access_time, size: 16, color: ThemeConfig.accentGray),
+        const SizedBox(width: 4),
+        Text(
+          _formatDateTime(file.uploadedAt),
+          style: TextStyle(color: ThemeConfig.accentGray, fontSize: 13),
+        ),
+      ],
+    );
+  }
+  
   String _formatDateTime(String dateTimeStr) {
     try {
       final dateTime = DateTime.parse(dateTimeStr);
@@ -407,125 +653,153 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
     }
   }
 
-  /// 构建操作按钮
-  ///
-  /// **Validates: Requirements 4.6, 4.7**
-  Widget _buildActionButtons(bool isOwner) {
-    if (isOwner) {
-      // 文件所有者：显示编辑和删除按钮
-      return Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _showEditDialog,
-              icon: const Icon(Icons.edit, size: 18),
-              label: const Text('编辑'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Colors.white54),
-              ),
+  /// 构建信息项
+  Widget _buildInfoItem({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: ThemeConfig.accentGray),
+        const SizedBox(width: 4),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(color: ThemeConfig.accentGray, fontSize: 13),
+              children: [
+                TextSpan(text: label),
+                TextSpan(
+                  text: value,
+                  style: TextStyle(color: ThemeConfig.primaryBlack),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _showDeleteConfirmDialog,
-              icon: const Icon(Icons.delete, size: 18),
-              label: const Text('删除'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: ThemeConfig.errorColor,
-                side: BorderSide(color: ThemeConfig.errorColor.withValues(alpha: 0.5)),
-              ),
-            ),
-          ),
-        ],
-      );
-    } else {
-      // 非所有者：显示请求编辑按钮
-      return SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: _showRequestEditDialog,
-          icon: const Icon(Icons.edit_note, size: 18),
-          label: const Text('请求编辑'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: ThemeConfig.primaryColor,
-            side: BorderSide(color: ThemeConfig.primaryColor.withValues(alpha: 0.5)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
-      );
-    }
+      ],
+    );
   }
 
-  /// 构建导航指示器
-  ///
-  /// **Validates: Requirements 4.5**
-  Widget _buildNavigationIndicators() {
-    return Positioned.fill(
-      child: Row(
-        children: [
-          // 左侧指示器（上一个文件）
-          if (_adjacentFiles?.previous != null)
-            GestureDetector(
-              onTap: () => _navigateToFile(_adjacentFiles!.previous!.id),
-              child: Container(
-                width: 60,
-                color: Colors.transparent,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black38,
-                      borderRadius: BorderRadius.circular(20),
+  /// 构建操作按钮
+  Widget _buildActionButtons(bool isOwner) {
+    final prefs = ref.watch(preferencesStorageSyncProvider);
+    final autoLoadOriginal = prefs?.isAutoLoadOriginalEnabled() ?? false;
+    
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: isOwner ? _showEditDialog : _showRequestEditDialog,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: ThemeConfig.accentGray,
+              side: BorderSide(color: ThemeConfig.borderColor),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(25),
+              ),
+            ),
+            child: Text(isOwner ? '编辑' : '请求编辑'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: _showOriginal ? null : (_isLoadingOriginal ? null : _loadOriginalImage),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: ThemeConfig.primaryColor,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: ThemeConfig.primaryColor.withValues(alpha: 0.5),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(25),
+              ),
+              elevation: 0,
+            ),
+            child: _isLoadingOriginal
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
                     ),
-                    child: const Icon(
-                      Icons.chevron_left,
-                      color: Colors.white70,
-                      size: 24,
-                    ),
-                  ),
+                  )
+                : Text(_showOriginal ? '已加载原图' : '下载原图'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 显示更多操作菜单
+  void _showMoreOptions() {
+    final currentUser = ref.read(currentUserProvider);
+    final isOwner = currentUser?.id == _file?.uploaderId;
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: ThemeConfig.borderColor,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-            )
-          else
-            const SizedBox(width: 60),
-
-          const Spacer(),
-
-          // 右侧指示器（下一个文件）
-          if (_adjacentFiles?.next != null)
-            GestureDetector(
-              onTap: () => _navigateToFile(_adjacentFiles!.next!.id),
-              child: Container(
-                width: 60,
-                color: Colors.transparent,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black38,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Icon(
-                      Icons.chevron_right,
-                      color: Colors.white70,
-                      size: 24,
-                    ),
-                  ),
+              if (isOwner) ...[
+                ListTile(
+                  leading: Icon(Icons.edit_outlined, color: ThemeConfig.primaryBlack),
+                  title: Text('编辑信息', style: TextStyle(color: ThemeConfig.primaryBlack)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showEditDialog();
+                  },
                 ),
+                ListTile(
+                  leading: Icon(Icons.delete_outline, color: ThemeConfig.errorColor),
+                  title: Text('删除文件', style: TextStyle(color: ThemeConfig.errorColor)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showDeleteConfirmDialog();
+                  },
+                ),
+              ] else ...[
+                ListTile(
+                  leading: Icon(Icons.edit_note_outlined, color: ThemeConfig.primaryBlack),
+                  title: Text('请求编辑', style: TextStyle(color: ThemeConfig.primaryBlack)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showRequestEditDialog();
+                  },
+                ),
+              ],
+              ListTile(
+                leading: Icon(Icons.close, color: ThemeConfig.accentGray),
+                title: Text('取消', style: TextStyle(color: ThemeConfig.accentGray)),
+                onTap: () => Navigator.pop(context),
               ),
-            )
-          else
-            const SizedBox(width: 60),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
 
-
-  /// 显示编辑对话框
-  ///
-  /// **Validates: Requirements 4.8**
   void _showEditDialog() {
     showModalBottomSheet(
       context: context,
@@ -534,53 +808,45 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
       builder: (context) => _EditFileBottomSheet(
         file: _file!,
         onSaved: (updatedFile) {
-          setState(() {
-            _file = updatedFile;
-          });
-          // 更新文件列表中的文件
+          setState(() => _file = updatedFile);
           ref.read(filesNotifierProvider.notifier).updateFile(updatedFile);
         },
       ),
     );
   }
 
-  /// 显示删除确认对话框
-  ///
-  /// **Validates: Requirements 4.9**
   void _showDeleteConfirmDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: ThemeConfig.surfaceColor,
-        title: const Text('确认删除'),
-        content: Text('确定要删除文件 "${_file!.originalFilename ?? _file!.filename}" 吗？此操作不可撤销。'),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('确认删除', style: TextStyle(color: ThemeConfig.primaryBlack)),
+        content: Text(
+          '确定要删除文件 "${_file!.filename}" 吗？此操作不可撤销。',
+          style: TextStyle(color: ThemeConfig.accentGray),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text('取消', style: TextStyle(color: ThemeConfig.accentGray)),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _deleteFile();
             },
-            style: TextButton.styleFrom(
-              foregroundColor: ThemeConfig.errorColor,
-            ),
-            child: const Text('删除'),
+            child: Text('删除', style: TextStyle(color: ThemeConfig.errorColor)),
           ),
         ],
       ),
     );
   }
 
-  /// 删除文件
   Future<void> _deleteFile() async {
     try {
       final repository = ref.read(filesRepositoryProvider);
       await repository.deleteFile(widget.fileId);
-
-      // 从文件列表中移除
       ref.read(filesNotifierProvider.notifier).removeFile(widget.fileId);
 
       if (mounted) {
@@ -598,9 +864,6 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
     }
   }
 
-  /// 显示请求编辑对话框
-  ///
-  /// **Validates: Requirements 6.2**
   void _showRequestEditDialog() {
     showModalBottomSheet(
       context: context,
@@ -608,9 +871,7 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => RequestEditDialog(
         file: _file!,
-        onSuccess: () {
-          // 刷新请求列表
-        },
+        onSuccess: () {},
       ),
     );
   }
@@ -620,18 +881,11 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: ThemeConfig.errorColor,
-          ),
+          Icon(Icons.error_outline, size: 64, color: ThemeConfig.errorColor),
           const SizedBox(height: 16),
           Text(
             _error!,
-            style: const TextStyle(
-              color: ThemeConfig.onSurfaceVariantColor,
-              fontSize: 16,
-            ),
+            style: TextStyle(color: ThemeConfig.accentGray, fontSize: 16),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
@@ -653,18 +907,11 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.search_off,
-            size: 64,
-            color: ThemeConfig.onSurfaceVariantColor,
-          ),
+          Icon(Icons.search_off, size: 64, color: ThemeConfig.accentGray),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             '文件不存在',
-            style: TextStyle(
-              color: ThemeConfig.onSurfaceVariantColor,
-              fontSize: 16,
-            ),
+            style: TextStyle(color: ThemeConfig.accentGray, fontSize: 16),
           ),
           const SizedBox(height: 16),
           ElevatedButton(
@@ -681,9 +928,8 @@ class _FileDetailScreenState extends ConsumerState<FileDetailScreen> {
   }
 }
 
+
 /// 编辑文件底部弹窗
-///
-/// **Validates: Requirements 4.8**
 class _EditFileBottomSheet extends ConsumerStatefulWidget {
   final FileModel file;
   final void Function(FileModel) onSaved;
@@ -739,9 +985,7 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isLoadingPresets = false;
-        });
+        setState(() => _isLoadingPresets = false);
       }
     }
   }
@@ -749,26 +993,21 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
   Future<void> _saveChanges() async {
     if (_isSaving) return;
 
-    setState(() {
-      _isSaving = true;
-    });
+    setState(() => _isSaving = true);
 
     try {
       final repository = ref.read(filesRepositoryProvider);
       
-      // 构建更新数据
       final updateData = <String, dynamic>{
         'activity_date': _activityDateController.text.isEmpty ? null : _activityDateController.text,
         'activity_type': _selectedActivityType,
         'activity_name': _activityNameController.text.isEmpty ? null : _activityNameController.text,
       };
       
-      // 如果文件名有变化，也更新
       if (_filenameController.text != widget.file.filename) {
         updateData['filename'] = _filenameController.text;
       }
       
-      // 检查标签是否有变化
       final originalTags = widget.file.freeTags.map((t) => t.name).toSet();
       final currentTags = _freeTags.toSet();
       if (!originalTags.containsAll(currentTags) || !currentTags.containsAll(originalTags)) {
@@ -786,9 +1025,7 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
+        setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('保存失败: ${e.toString()}')),
         );
@@ -835,45 +1072,42 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
       builder: (context, scrollController) {
         return Container(
           decoration: const BoxDecoration(
-            color: ThemeConfig.surfaceColor,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
           child: Column(
             children: [
-              // 拖动指示器
               Container(
                 margin: const EdgeInsets.only(top: 12),
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: ThemeConfig.dividerColor,
+                  color: ThemeConfig.borderColor,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
               
-              // 标题栏
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
+                    Text(
                       '编辑文件信息',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: ThemeConfig.onBackgroundColor,
+                        color: ThemeConfig.primaryBlack,
                       ),
                     ),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, color: ThemeConfig.onSurfaceVariantColor),
+                      icon: Icon(Icons.close, color: ThemeConfig.accentGray),
                     ),
                   ],
                 ),
               ),
               
-              // 表单内容
               Expanded(
                 child: SingleChildScrollView(
                   controller: scrollController,
@@ -881,16 +1115,12 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 文件名
                       TextField(
                         controller: _filenameController,
-                        decoration: const InputDecoration(
-                          labelText: '文件名',
-                        ),
+                        decoration: const InputDecoration(labelText: '文件名'),
                       ),
                       const SizedBox(height: 16),
                       
-                      // 活动日期
                       TextField(
                         controller: _activityDateController,
                         readOnly: true,
@@ -902,13 +1132,10 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
                       ),
                       const SizedBox(height: 16),
 
-                      // 活动类型
                       DropdownButtonFormField<String>(
                         value: _selectedActivityType,
-                        decoration: const InputDecoration(
-                          labelText: '活动类型',
-                        ),
-                        dropdownColor: ThemeConfig.surfaceColor,
+                        decoration: const InputDecoration(labelText: '活动类型'),
+                        dropdownColor: Colors.white,
                         items: _isLoadingPresets
                             ? []
                             : _activityTypePresets.map((preset) {
@@ -917,15 +1144,10 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
                                   child: Text(preset.displayName),
                                 );
                               }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedActivityType = value;
-                          });
-                        },
+                        onChanged: (value) => setState(() => _selectedActivityType = value),
                       ),
                       const SizedBox(height: 16),
 
-                      // 活动名称
                       TextField(
                         controller: _activityNameController,
                         decoration: const InputDecoration(
@@ -935,22 +1157,17 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
                       ),
                       const SizedBox(height: 16),
                       
-                      // 自由标签
-                      const Text(
+                      Text(
                         '自由标签',
                         style: TextStyle(
-                          color: ThemeConfig.onSurfaceVariantColor,
+                          color: ThemeConfig.accentGray,
                           fontSize: 14,
                         ),
                       ),
                       const SizedBox(height: 8),
                       TagInputWithSuggestions(
                         tags: _freeTags,
-                        onTagsChanged: (tags) {
-                          setState(() {
-                            _freeTags = tags;
-                          });
-                        },
+                        onTagsChanged: (tags) => setState(() => _freeTags = tags),
                       ),
                       const SizedBox(height: 24),
                     ],
@@ -958,7 +1175,6 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
                 ),
               ),
               
-              // 底部按钮
               Container(
                 padding: EdgeInsets.only(
                   left: 16,
@@ -966,11 +1182,9 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
                   top: 16,
                   bottom: MediaQuery.of(context).padding.bottom + 16,
                 ),
-                decoration: const BoxDecoration(
-                  color: ThemeConfig.surfaceColor,
-                  border: Border(
-                    top: BorderSide(color: ThemeConfig.dividerColor),
-                  ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: ThemeConfig.borderColor)),
                 ),
                 child: SizedBox(
                   width: double.infinity,
@@ -980,6 +1194,10 @@ class _EditFileBottomSheetState extends ConsumerState<_EditFileBottomSheet> {
                       backgroundColor: ThemeConfig.primaryColor,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      elevation: 0,
                     ),
                     child: _isSaving
                         ? const SizedBox(

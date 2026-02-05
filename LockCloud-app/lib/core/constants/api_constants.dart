@@ -39,6 +39,7 @@ class ApiConstants {
   // 上传相关
   static const String uploadPresign = '/api/files/upload-url';
   static const String uploadConfirm = '/api/files/confirm';
+  static const String checkFilenames = '/api/files/check-filenames';
 
   // 请求相关
   static const String requests = '/api/requests';
