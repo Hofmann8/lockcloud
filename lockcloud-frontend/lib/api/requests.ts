@@ -11,7 +11,6 @@ export interface FileRequestData {
     activity_date?: string;
     activity_type?: string;
     activity_name?: string;
-    instructor?: string;
     filename?: string;
     free_tags?: string[];
     new_activity_name?: string;
@@ -45,7 +44,6 @@ export const createRequest = async (data: {
     activity_date?: string;
     activity_type?: string;
     activity_name?: string;
-    instructor?: string;
     filename?: string;
     free_tags?: string[];
   };

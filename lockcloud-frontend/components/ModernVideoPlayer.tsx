@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import Hls, { Level } from 'hls.js';
+import { getApiBaseUrl } from '@/lib/config/api';
 
 // ============================================
 // Types
@@ -32,6 +33,7 @@ const VOLUME_STORAGE_KEY = 'lockcloud-player-volume';
 const QUALITY_STORAGE_KEY = 'lockcloud-player-quality';
 const SPEED_OPTIONS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const DEFAULT_QUALITY = 1080;
+const HLS_PROXY_PATH = '/api/files/hls-proxy';
 
 // ============================================
 // Utils
@@ -88,6 +90,45 @@ const getQualityLabel = (height: number): string => {
   if (height >= 360) return '360p';
   return `${height}p`;
 };
+
+const serializeHlsError = (data: unknown) => {
+  const error = data as Record<string, unknown> | undefined;
+  const response = error?.response as Record<string, unknown> | undefined;
+  const networkDetails = error?.networkDetails as
+    | XMLHttpRequest
+    | { status?: number; responseURL?: string; readyState?: number }
+    | undefined;
+
+  const xhr =
+    networkDetails && typeof XMLHttpRequest !== 'undefined' && networkDetails instanceof XMLHttpRequest
+      ? networkDetails
+      : undefined;
+
+  return {
+    type: error?.type ?? null,
+    details: error?.details ?? null,
+    fatal: Boolean(error?.fatal),
+    url:
+      (response?.url as string | undefined) ||
+      xhr?.responseURL ||
+      (networkDetails as { responseURL?: string } | undefined)?.responseURL ||
+      null,
+    status:
+      (response?.code as number | undefined) ||
+      xhr?.status ||
+      (networkDetails as { status?: number } | undefined)?.status ||
+      null,
+    reason:
+      (error?.error as Error | undefined)?.message ||
+      (response?.text as string | undefined) ||
+      null,
+    level:
+      typeof error?.level === 'number' ? error.level : null,
+  };
+};
+
+const formatHlsErrorSummary = (errorInfo: ReturnType<typeof serializeHlsError>): string =>
+  JSON.stringify(errorInfo, null, 2);
 
 // ============================================
 // Icons
@@ -195,6 +236,7 @@ export function ModernVideoPlayer({
   const [autoQuality, setAutoQuality] = useState(false);
   const [preferredQuality, setPreferredQuality] = useState(() => getSavedQuality());
   const autoQualityRef = useRef(false);
+  const networkRecoveryAttemptsRef = useRef(0);
 
   // HLS detection
   const isHLSUrl = src.includes('.m3u8');
@@ -205,14 +247,14 @@ export function ModernVideoPlayer({
   const hlsSrc = useMemo(() => {
     if (!fileId || !isBitifulUrl(src)) return src;
 
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    const apiBaseUrl = getApiBaseUrl();
     try {
       const url = new URL(src);
       const pathname = url.pathname;
       const styleIdx = pathname.indexOf('!style:');
       if (styleIdx !== -1) {
         const hlsPath = pathname.substring(styleIdx + 7);
-        return `${apiBaseUrl}/api/files/hls-proxy/${fileId}/${hlsPath}`;
+        return new URL(`${HLS_PROXY_PATH}/${fileId}/${hlsPath}`, apiBaseUrl).toString();
       }
     } catch (e) {
       console.error('[HLS] Failed to parse URL for proxy:', e);
@@ -243,6 +285,7 @@ export function ModernVideoPlayer({
 
     if (shouldUseHLS && Hls.isSupported()) {
       const token = typeof window !== 'undefined' ? localStorage.getItem('lockcloud_token') : null;
+      networkRecoveryAttemptsRef.current = 0;
 
       const hls = new Hls({
         enableWorker: true,
@@ -254,10 +297,16 @@ export function ModernVideoPlayer({
         abrEwmaDefaultEstimate: 5000000,
         abrMaxWithRealBitrate: true,
         xhrSetup: (xhr, url) => {
-          if (url.includes('/api/files/hls-proxy/') && token) {
+          if (url.includes(HLS_PROXY_PATH) && token) {
             xhr.setRequestHeader('Authorization', `Bearer ${token}`);
           }
         },
+      });
+
+      console.info('[HLS] Loading source', {
+        originalSrc: src,
+        proxySrc: hlsSrc,
+        apiBaseUrl: getApiBaseUrl(),
       });
 
       hls.loadSource(hlsSrc);
@@ -308,8 +357,28 @@ export function ModernVideoPlayer({
       });
 
       hls.on(Hls.Events.ERROR, (_, data) => {
+        const errorInfo = serializeHlsError(data);
+
         if (data.fatal) {
-          console.error('[HLS] Fatal error:', data);
+          console.error(`[HLS] Fatal error detail ${formatHlsErrorSummary(errorInfo)}`);
+          console.error(
+            `[HLS] Fatal error fields type=${String(errorInfo.type)} details=${String(errorInfo.details)} status=${String(errorInfo.status)} url=${String(errorInfo.url)} reason=${String(errorInfo.reason)}`
+          );
+          console.debug('[HLS] Fatal error raw object', data);
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRecoveryAttemptsRef.current < 1) {
+            networkRecoveryAttemptsRef.current += 1;
+            console.warn('[HLS] Retrying network load once');
+            hls.startLoad();
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.warn('[HLS] Recovering media error');
+            hls.recoverMediaError();
+            return;
+          }
+
           onError?.();
         }
       });

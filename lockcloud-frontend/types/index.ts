@@ -136,27 +136,6 @@ export interface DirectoryNode {
   activity_type?: string;
 }
 
-// Tag Preset types
-export interface TagPreset {
-  id: number;
-  category: 'activity_type';
-  value: string;
-  display_name: string;
-  is_active: boolean;
-  created_at: string;
-}
-
-export interface TagPresetsResponse {
-  success: boolean;
-  presets: TagPreset[];
-}
-
-export interface AddTagPresetRequest {
-  category: 'activity_type';
-  value: string;
-  display_name: string;
-}
-
 export interface UpdateFileTagsRequest {
   activity_date: string;
   activity_type: string;

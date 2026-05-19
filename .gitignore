@@ -1,9 +1,9 @@
 # ==========================================
 # Python Backend
 # ==========================================
-backend/__pycache__/
-backend/*.py[cod]
-backend/*$py.class
+**/__pycache__/
+*.py[cod]
+*$py.class
 backend/*.so
 backend/.Python
 backend/env/

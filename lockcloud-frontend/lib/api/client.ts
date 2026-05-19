@@ -1,15 +1,28 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { ApiError } from '@/types';
 import { showToast, toastMessages } from '@/lib/utils/toast';
+import { getApiBaseUrl } from '@/lib/config/api';
+
+// Allow per-request opt-out of the global toast. Caller still gets the rejection
+// and is expected to handle it (e.g. SSO config has a fallback URL).
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    silentError?: boolean;
+  }
+}
 
 // Create axios instance with base configuration
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
+  baseURL: getApiBaseUrl(),
   timeout: 0, // No timeout - allow infinite wait for AI responses
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// Module-level guard so parallel 401s don't each fire toast + redirect.
+// Reset on next page load (full nav clears the module).
+let isHandlingAuthFailure = false;
 
 // Request interceptor to add JWT token
 apiClient.interceptors.request.use(
@@ -34,34 +47,49 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error: AxiosError<ApiError>) => {
+    const silentError = error.config?.silentError === true;
+
     // Handle different error scenarios
     if (error.response) {
       const { status, data } = error.response;
 
-      // Handle 401 Unauthorized - token expired or invalid
+      // Handle 401 Unauthorized - token expired or invalid.
+      // Guard against parallel requests all firing toast + redirect.
+      // 401 cleanup always runs even if silent (session integrity), but toast may be suppressed.
       if (status === 401) {
-        showToast.error(toastMessages.sessionExpired);
-        
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('lockcloud_token');
-          localStorage.removeItem('lockcloud_user');
-          
-          // Delay redirect to show toast
-          setTimeout(() => {
-            window.location.href = '/auth/login';
-          }, 1000);
+        if (!isHandlingAuthFailure) {
+          isHandlingAuthFailure = true;
+          if (!silentError) {
+            showToast.error(toastMessages.sessionExpired, { id: 'session-expired' });
+          }
+
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('lockcloud_token');
+            localStorage.removeItem('lockcloud_user');
+            // Also clear zustand persisted auth so stale token doesn't get re-hydrated.
+            localStorage.removeItem('lockcloud-auth');
+
+            setTimeout(() => {
+              window.location.href = '/auth/login';
+            }, 1000);
+          }
         }
+
+        return Promise.reject({
+          code: 'AUTH_EXPIRED',
+          message: toastMessages.sessionExpired,
+          details: {},
+        });
       }
 
       // Handle 403 Forbidden - don't redirect, let the page handle it
-      if (status === 403) {
-        showToast.error(toastMessages.permissionDenied);
-        // Don't redirect, just return the error
+      if (status === 403 && !silentError) {
+        showToast.error(toastMessages.permissionDenied, { id: 'permission-denied' });
       }
 
       // Handle network timeout
-      if (status === 408 || error.code === 'ECONNABORTED') {
-        showToast.error('请求超时，请重试');
+      if ((status === 408 || error.code === 'ECONNABORTED') && !silentError) {
+        showToast.error('请求超时，请重试', { id: 'request-timeout' });
       }
 
       // Return structured error
@@ -71,9 +99,11 @@ apiClient.interceptors.response.use(
         details: data?.details,
       });
     } else if (error.request) {
-      // Network error - no response received
-      showToast.error(toastMessages.networkError);
-      
+      // Network error - no response received. Dedupe so parallel failures don't spam.
+      if (!silentError) {
+        showToast.error(toastMessages.networkError, { id: 'network-error' });
+      }
+
       return Promise.reject({
         code: 'NETWORK_ERROR',
         message: toastMessages.networkError,

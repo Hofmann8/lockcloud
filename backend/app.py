@@ -3,6 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from flask import Flask, jsonify
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 from config import config
 from extensions import db, jwt, mail, limiter
 
@@ -83,6 +84,8 @@ def create_app(config_name=None):
     
     app = Flask(__name__)
     app.config.from_object(config[config_name])
+    # Trust reverse-proxy forwarded host/scheme so generated URLs stay correct
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     
     # 配置日志系统（在初始化其他组件之前）
     configure_logging(app)
@@ -140,7 +143,7 @@ def create_app(config_name=None):
     # Import models to register them with SQLAlchemy
     with app.app_context():
         from auth.models import User
-        from files.models import File, TagPreset
+        from files.models import File
         from files.request_models import FileRequest
         from logs.models import FileLog
     
@@ -151,14 +154,12 @@ def create_app(config_name=None):
     from auth.routes import auth_bp
     from files.routes import files_bp
     from logs.routes import logs_bp
-    from tag_presets.routes import tag_presets_bp
     from admin.routes import admin_bp
     from tags.routes import tags_bp
     from file_requests.routes import requests_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(files_bp, url_prefix='/api/files')
     app.register_blueprint(logs_bp, url_prefix='/api/logs')
-    app.register_blueprint(tag_presets_bp, url_prefix='/api/tag-presets')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(tags_bp, url_prefix='/api/tags')
     app.register_blueprint(requests_bp, url_prefix='/api/requests')
@@ -181,7 +182,11 @@ def create_app(config_name=None):
     # 注册 CLI 命令
     from scripts.preheat_videos import register_commands
     register_commands(app)
-    
+
+    # File insert/delete 之后异步触发 embedding worker
+    from services.embed_trigger import init_embed_trigger
+    init_embed_trigger(app)
+
     return app
 
 
@@ -351,4 +356,6 @@ def register_error_handlers(app):
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    # 开发用 5000(前端 lib/config/api.ts 默认指向此端口)。
+    # 生产走 gunicorn,绑 5001,见 gunicorn.conf.py。
+    app.run(debug=True, host='0.0.0.0', port=5000)

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { InlineCalendar } from './InlineCalendar';
 import { Button } from './Button';
-import { useActivityTypes } from '@/lib/hooks/useTagPresets';
+import { ACTIVITY_TYPES } from '@/lib/constants/activityTypes';
 import { checkFilenames, getActivityNamesByDate, ActivityNameInfo } from '@/lib/api/files';
 import { showToast } from '@/lib/utils/toast';
 import { useQueryClient } from '@tanstack/react-query';
@@ -58,7 +58,7 @@ export function MultiFileUploadForm({
 
   const [isCheckingFilenames, setIsCheckingFilenames] = useState(false);
 
-  const { data: activityTypes = [], isLoading: loadingActivityTypes } = useActivityTypes();
+  const activityTypes = ACTIVITY_TYPES;
 
   // Fetch activity names when date changes
   const fetchActivityNames = useCallback(async (date: string) => {
@@ -423,7 +423,7 @@ export function MultiFileUploadForm({
                   setActivityType(e.target.value);
                   if (errors.activityType) setErrors({ ...errors, activityType: undefined });
                 }}
-                disabled={loadingActivityTypes || (!isNewActivity && !!activityName && existingActivityNames.some(a => a.name === activityName))}
+                disabled={!isNewActivity && !!activityName && existingActivityNames.some(a => a.name === activityName)}
                 className={`w-full px-4 py-3 md:px-3 md:py-2.5 text-base md:text-sm border rounded-lg transition-colors
                   min-h-[48px] md:min-h-0
                   appearance-none bg-white
@@ -443,8 +443,8 @@ export function MultiFileUploadForm({
               >
                 <option value="">选择活动类型</option>
                 {activityTypes.map((type) => (
-                  <option key={type.id} value={type.value}>
-                    {type.display_name}
+                  <option key={type.value} value={type.value}>
+                    {type.label}
                   </option>
                 ))}
               </select>

@@ -1208,3 +1208,11 @@ label {
   list-style-type: none;
   margin-left: -1.5rem;
 }
+
+/* AI search owns its orange focus treatment; suppress the global blue input ring here only. */
+.ai-search-box__input:focus,
+.ai-search-box__input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}

@@ -21,10 +21,11 @@ export const showToast = {
     })
   },
 
-  error: (message: string) => {
+  error: (message: string, options?: { id?: string; duration?: number }) => {
     return toast.error(message, {
-      duration: 4000,
+      duration: options?.duration ?? 4000,
       position: 'top-center',
+      id: options?.id,
       style: {
         background: '#e74c3c',
         color: '#fff',

@@ -3,12 +3,12 @@
 import { Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { listFiles } from '@/lib/api/files';
+import { listFiles, aiSearch } from '@/lib/api/files';
 import { searchTags } from '@/lib/api/tags';
 import { FileFilters, File, TagWithCount } from '@/types';
 import { FileGrid } from '@/components/FileGrid';
 import { FileGridSkeleton } from '@/components/SkeletonLoader';
-import { Pagination } from '@/components/Pagination';
+import { Pagination, PerPageSelect } from '@/components/Pagination';
 import { Card } from '@/components/Card';
 import { ErrorCard } from '@/components/ErrorCard';
 import { MobileMenuButton } from '@/components/MobileMenuButton';
@@ -17,7 +17,7 @@ import { BatchActionToolbar } from '@/components/BatchActionToolbar';
 import { FileCardSimple } from '@/components/FileCardSimple';
 import { useBatchSelectionStore } from '@/stores/batchSelectionStore';
 import { ActivityDirectoryEditor } from '@/components/ActivityDirectoryEditor';
-import { useActivityTypes } from '@/lib/hooks/useTagPresets';
+import { activityTypeLabel } from '@/lib/constants/activityTypes';
 import { zhCN } from '@/locales/zh-CN';
 
 type MediaType = 'all' | 'image' | 'video';
@@ -34,14 +34,17 @@ function FilesPageContent() {
   const tagInputRef = useRef<HTMLInputElement>(null);
   const tagDropdownRef = useRef<HTMLDivElement>(null);
   
-  const { data: activityTypes = [] } = useActivityTypes();
-  
   // Get current filter values from URL - must be before suggestedTags
   const currentMediaType = (searchParams.get('media_type') as MediaType) || 'all';
-  const currentTags = useMemo(() => 
-    searchParams.get('tags')?.split(',').filter(Boolean) || [], 
+  const currentTags = useMemo(() =>
+    searchParams.get('tags')?.split(',').filter(Boolean) || [],
     [searchParams]
   );
+
+  // AI 搜索模式:URL 上有 ai=<query> 就走语义检索,否则走 listFiles。
+  // 跟"按年月活动筛选"是同一层的另一种 query 模式。
+  const aiQuery = searchParams.get('ai') || '';
+  const isAiMode = aiQuery.length > 0;
 
   // Search tags when input changes
   const { data: searchResults = [] } = useQuery({
@@ -83,7 +86,6 @@ function FilesPageContent() {
     ...(searchParams.get('activity_type') && { activity_type: searchParams.get('activity_type')! }),
     ...(searchParams.get('activity_name') && { activity_name: searchParams.get('activity_name')! }),
     ...(searchParams.get('activity_date') && { activity_date: searchParams.get('activity_date')! }),
-    ...(searchParams.get('instructor') && { instructor: searchParams.get('instructor')! }),
     ...(searchParams.get('date_from') && { date_from: searchParams.get('date_from')! }),
     ...(searchParams.get('date_to') && { date_to: searchParams.get('date_to')! }),
     ...(searchParams.get('search') && { search: searchParams.get('search')! }),
@@ -94,9 +96,34 @@ function FilesPageContent() {
   };
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['files', filters],
-    queryFn: () => listFiles(filters),
+    queryKey: isAiMode ? ['ai-search', aiQuery] : ['files', filters],
+    queryFn: async () => {
+      if (isAiMode) {
+        const r = await aiSearch(aiQuery, 50);
+        // 适配 FileListResponse 的形状,FileGrid / EmptyState 等下游代码无需改动。
+        // AI 模式返回 top-K,没有真正的分页 —— pages=1, has_*=false。
+        return {
+          files: r.results.map((x) => x.file),
+          pagination: {
+            total: r.results.length,
+            page: 1,
+            per_page: r.results.length || 1,
+            pages: 1,
+            has_next: false,
+            has_prev: false,
+          },
+          // 私下挂 AI 元信息,渲染统计行时取
+          _ai: { ms: r.ms, query_tokens: r.query_tokens },
+        };
+      }
+      return listFiles(filters);
+    },
   });
+
+  // 取 AI 模式的统计(只在 isAiMode 下有值)
+  const aiStats = isAiMode
+    ? (data as { _ai?: { ms: number; query_tokens: number } } | undefined)?._ai
+    : undefined;
 
   useEffect(() => {
     clearSelection();
@@ -199,17 +226,25 @@ function FilesPageContent() {
   const currentActivityDate = searchParams.get('activity_date') || '';
   const currentActivityName = searchParams.get('activity_name') || '';
   const currentActivityType = searchParams.get('activity_type') || '';
-  const currentActivityTypeDisplay = activityTypes.find(t => t.value === currentActivityType)?.display_name || currentActivityType;
+  const currentActivityTypeDisplay = currentActivityType ? activityTypeLabel(currentActivityType) : '';
 
   return (
     <div className="space-y-4">
       {/* Row 1: Breadcrumb Navigation */}
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-sm flex-wrap">
         <MobileMenuButton />
-        {breadcrumb.map((item, index) => (
+        <button
+          onClick={() => router.push('/files')}
+          className={`transition-colors ${
+            isAiMode ? 'text-gray-500 hover:text-orange-500' : 'font-medium text-black'
+          }`}
+        >
+          全部文件
+        </button>
+        {!isAiMode && breadcrumb.slice(1).map((item, index) => (
           <span key={item.label} className="flex items-center gap-2">
-            {index > 0 && <span className="text-gray-300">/</span>}
-            {index === breadcrumb.length - 1 || !item.href ? (
+            <span className="text-gray-300">/</span>
+            {index === breadcrumb.length - 2 || !item.href ? (
               <span className="font-medium text-black">{item.label}</span>
             ) : (
               <button
@@ -221,13 +256,40 @@ function FilesPageContent() {
             )}
           </span>
         ))}
+        {/* AI 搜索 chip */}
+        {isAiMode && (
+          <>
+            <span className="text-gray-300">/</span>
+            <span className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 bg-orange-50 border border-orange-500/30 text-orange-600 text-xs rounded-full">
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2.5l1.8 5.4a3 3 0 0 0 1.9 1.9L21 11.5l-5.3 1.7a3 3 0 0 0-1.9 1.9L12 20.5l-1.8-5.4a3 3 0 0 0-1.9-1.9L3 11.5l5.3-1.7a3 3 0 0 0 1.9-1.9L12 2.5z" />
+              </svg>
+              <span className="font-medium">AI 搜索:{aiQuery}</span>
+              <button
+                onClick={() => router.push('/files')}
+                className="ml-0.5 p-0.5 rounded-full hover:bg-orange-100 hover:text-orange-700 transition-colors"
+                aria-label="退出 AI 搜索"
+                title="退出 AI 搜索"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+            {aiStats && (
+              <span className="text-[11px] text-gray-400">
+                {data?.pagination.total ?? 0} 结果 · {aiStats.ms}ms · {aiStats.query_tokens} tokens
+              </span>
+            )}
+          </>
+        )}
         {/* Activity type badge */}
-        {isActivityDirectory && currentActivityTypeDisplay && (
+        {!isAiMode && isActivityDirectory && currentActivityTypeDisplay && (
           <span className="px-2 py-0.5 bg-orange-50 text-orange-500 text-xs rounded-full">
             {currentActivityTypeDisplay}
           </span>
         )}
-        {data && (
+        {!isAiMode && data && (
           <span className="text-gray-400 ml-1">({data.pagination.total})</span>
         )}
         {/* Edit directory button */}
@@ -244,7 +306,8 @@ function FilesPageContent() {
         )}
       </div>
 
-      {/* Row 2: All Controls - Mobile: Multi-row stacked layout */}
+      {/* Row 2: All Controls - AI 模式下整行隐藏(标签/媒体/分页都不适用 cosine 排序) */}
+      {!isAiMode && (
       <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-2">
         {/* Row 2a: Selection + Media Type (Mobile: Full width row) */}
         <div className="flex flex-wrap items-center gap-2">
@@ -383,19 +446,13 @@ function FilesPageContent() {
 
         {/* Row 2c: Per Page (Mobile: Right aligned) */}
         <div className="flex justify-end md:justify-start md:ml-auto">
-          <select
+          <PerPageSelect
             value={filters.per_page}
-            onChange={(e) => handlePerPageChange(parseInt(e.target.value))}
-            className="px-3 py-2 md:px-2 md:py-1 text-sm md:text-xs border border-gray-200 rounded-md focus:outline-none focus:border-orange-500 bg-white min-h-[40px] md:min-h-0"
-            aria-label="每页显示数量"
-          >
-            <option value={12}>12</option>
-            <option value={24}>24</option>
-            <option value={48}>48</option>
-            <option value={96}>96</option>
-          </select>
+            onChange={handlePerPageChange}
+          />
         </div>
       </div>
+      )}
 
       {/* Loading State */}
       {isLoading && <FileGridSkeleton count={filters.per_page} />}
@@ -414,7 +471,9 @@ function FilesPageContent() {
       {!isLoading && !error && data && data.files.length === 0 && (
         <Card variant="bordered" padding="lg">
           <div className="text-center">
-            <p className="text-gray-500">{zhCN.files.noFiles}</p>
+            <p className="text-gray-500">
+              {isAiMode ? `没有匹配 "${aiQuery}" 的结果` : zhCN.files.noFiles}
+            </p>
           </div>
         </Card>
       )}

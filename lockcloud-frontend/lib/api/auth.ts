@@ -13,7 +13,8 @@ export const getSSOConfig = async (): Promise<{
   sso_login_url: string;
   sso_frontend_url: string;
 }> => {
-  const response = await apiClient.get('/api/auth/sso/config');
+  // Caller has its own fallback URL; suppress global error toast on failure.
+  const response = await apiClient.get('/api/auth/sso/config', { silentError: true });
   return response.data;
 };
 

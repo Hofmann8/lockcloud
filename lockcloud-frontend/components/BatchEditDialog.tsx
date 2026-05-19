@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getTagPresets } from '@/lib/api/tag-presets';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ACTIVITY_TYPES } from '@/lib/constants/activityTypes';
 import { batchUpdateFiles, batchCreateRequests, BatchUpdateData, BatchUpdateResult } from '@/lib/api/files';
 import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
@@ -55,11 +55,6 @@ export function BatchEditDialog({ files, isOpen, onClose, onSuccess }: BatchEdit
     });
     return { ownFiles: own, otherFiles: other };
   }, [files, user?.id, isAdmin]);
-
-  const { data: activityTypePresets } = useQuery({
-    queryKey: ['tagPresets', 'activity_type'],
-    queryFn: () => getTagPresets('activity_type'),
-  });
 
   // Batch update mutation for own files
   const batchUpdateMutation = useMutation({
@@ -149,7 +144,7 @@ export function BatchEditDialog({ files, isOpen, onClose, onSuccess }: BatchEdit
   };
 
   const isPending = batchUpdateMutation.isPending || batchRequestMutation.isPending;
-  const activityTypeOptions = activityTypePresets || [];
+  const activityTypeOptions = ACTIVITY_TYPES;
 
   if (!isOpen) return null;
 
@@ -169,7 +164,7 @@ export function BatchEditDialog({ files, isOpen, onClose, onSuccess }: BatchEdit
               <h3 className="text-sm font-medium text-gray-700">修改内容</h3>
               <div className="space-y-1 text-sm text-gray-600">
                 {confirmationSummary.changes.activity_date && <p>• 活动日期: {confirmationSummary.changes.activity_date}</p>}
-                {confirmationSummary.changes.activity_type && <p>• 活动类型: {activityTypeOptions.find(o => o.value === confirmationSummary.changes.activity_type)?.display_name || confirmationSummary.changes.activity_type}</p>}
+                {confirmationSummary.changes.activity_type && <p>• 活动类型: {activityTypeOptions.find(o => o.value === confirmationSummary.changes.activity_type)?.label || confirmationSummary.changes.activity_type}</p>}
                 {confirmationSummary.changes.activity_name !== undefined && <p>• 活动名称: {confirmationSummary.changes.activity_name || '(清空)'}</p>}
               </div>
             </div>
@@ -239,7 +234,7 @@ export function BatchEditDialog({ files, isOpen, onClose, onSuccess }: BatchEdit
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">活动类型</label>
                 <select value={activityType || ''} onChange={(e) => setActivityType(e.target.value || undefined)} className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all min-h-[44px]">
                   <option value="">不修改</option>
-                  {activityTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.display_name}</option>)}
+                  {activityTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </div>
             </div>

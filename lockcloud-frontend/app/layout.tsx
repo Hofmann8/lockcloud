@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/lib/providers";
+import { UnregisterServiceWorker } from "@/components/UnregisterServiceWorker";
 
 export const metadata: Metadata = {
   title: "LockCloud - Funk & Love 云存储",
@@ -31,6 +32,7 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased font-sans">
+        <UnregisterServiceWorker />
         <Providers>
           {children}
         </Providers>

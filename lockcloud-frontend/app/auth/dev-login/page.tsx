@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
+import { getApiBaseUrl } from '@/lib/config/api';
 
 /**
  * 开发环境快速登录页面
@@ -25,7 +26,7 @@ export default function DevLoginPage() {
 
     const doDevLogin = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+        const apiUrl = getApiBaseUrl();
         const response = await fetch(`${apiUrl}/api/auth/dev/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

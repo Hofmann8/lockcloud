@@ -125,8 +125,7 @@ def get_upload_url():
         "content_type": "image/jpeg",
         "size": 1024000,
         "activity_date": "2025-03-15",
-        "activity_type": "regular_training",
-        "instructor": "alex"
+        "activity_type": "regular_training"
     }
     
     Returns:
@@ -173,17 +172,13 @@ def get_upload_url():
                 }
             }), 400
         
-        # Validate tag presets
-        from services.tag_preset_service import tag_preset_service
-        
         # Validate activity_type
-        activity_type_presets = tag_preset_service.get_active_presets('activity_type')
-        valid_activity_types = [preset.value for preset in activity_type_presets]
-        if activity_type not in valid_activity_types:
+        from constants.activity_types import ACTIVITY_TYPE_VALUES
+        if activity_type not in ACTIVITY_TYPE_VALUES:
             return jsonify({
                 'error': {
                     'code': 'FILE_008',
-                    'message': f'活动类型无效。有效选项: {", ".join(valid_activity_types)}'
+                    'message': f'活动类型无效。有效选项: {", ".join(sorted(ACTIVITY_TYPE_VALUES))}'
                 }
             }), 400
         
@@ -357,8 +352,7 @@ def confirm_upload():
         "content_type": "image/jpeg",
         "original_filename": "IMG_1234.jpg",
         "activity_date": "2025-03-15",
-        "activity_type": "regular_training",
-        "instructor": "alex"
+        "activity_type": "regular_training"
     }
     
     Returns:
@@ -509,18 +503,10 @@ def confirm_upload():
             except Exception as e:
                 current_app.logger.warning(f'Failed to trigger transcode preheat for {s3_key}: {str(e)}')
         
-        # Get tag preset display names for response
-        from services.tag_preset_service import tag_preset_service
-        
-        activity_type_preset = next(
-            (p for p in tag_preset_service.get_active_presets('activity_type') if p.value == activity_type),
-            None
-        )
-        activity_type_display = activity_type_preset.display_name if activity_type_preset else activity_type
-        
         # Build response with display names
+        from constants.activity_types import display_name_for
         file_dict = file.to_dict(include_uploader=True)
-        file_dict['activity_type_display'] = activity_type_display
+        file_dict['activity_type_display'] = display_name_for(activity_type)
         
         return jsonify({
             'success': True,
@@ -546,13 +532,12 @@ def list_files():
     """
     List files with optional filters and pagination
     
-    GET /api/files?directory=/rehearsals/2025-03-session/&uploader_id=1&activity_type=regular_training&instructor=alex&date_from=2025-03-01&date_to=2025-03-31&search=training&media_type=image&tags=dance,practice&year=2025&month=3&page=1&per_page=50
+    GET /api/files?directory=/rehearsals/2025-03-session/&uploader_id=1&activity_type=regular_training&date_from=2025-03-01&date_to=2025-03-31&search=training&media_type=image&tags=dance,practice&year=2025&month=3&page=1&per_page=50
     Headers: Authorization: Bearer <token>
     Query Parameters:
         - directory: Filter by directory path (optional)
         - uploader_id: Filter by uploader user ID (optional)
         - activity_type: Filter by activity type (optional)
-        - instructor: Filter by instructor (optional)
         - date_from: Filter by activity date from (ISO format, optional)
         - date_to: Filter by activity date to (ISO format, optional)
         - search: Search across filename, original_filename, and tags (optional)
@@ -579,7 +564,6 @@ def list_files():
         activity_type = request.args.get('activity_type', '').strip()
         activity_name = request.args.get('activity_name', '').strip()
         activity_date_exact = request.args.get('activity_date', '').strip()  # Exact date filter
-        instructor = request.args.get('instructor', '').strip()
         date_from = request.args.get('date_from', '').strip()
         date_to = request.args.get('date_to', '').strip()
         search = request.args.get('search', '').strip()
@@ -636,10 +620,6 @@ def list_files():
                     }
                 }), 400
         
-        # Filter by instructor
-        if instructor:
-            query = query.filter(File.instructor == instructor)
-        
         # Filter by media_type (Requirements: 2.1, 2.2, 2.3)
         if media_type and media_type != 'all':
             if media_type == 'image':
@@ -691,7 +671,6 @@ def list_files():
                     File.filename.ilike(search_pattern),
                     File.original_filename.ilike(search_pattern),
                     File.activity_type.ilike(search_pattern),
-                    File.instructor.ilike(search_pattern)
                 )
             )
         
@@ -731,23 +710,15 @@ def list_files():
         )
         
         # Convert files to dictionaries with tag display names
-        from services.tag_preset_service import tag_preset_service
-        
-        # Get all active presets for display name mapping
-        activity_type_presets = {p.value: p.display_name for p in tag_preset_service.get_active_presets('activity_type')}
-        instructor_presets = {p.value: p.display_name for p in tag_preset_service.get_active_presets('instructor')}
-        
+        from constants.activity_types import ACTIVITY_TYPE_DISPLAY
+
         files = []
         for file in pagination.items:
             file_dict = file.to_dict(include_uploader=True)
-            
-            # Add display names for tags
             if file.activity_type:
-                file_dict['activity_type_display'] = activity_type_presets.get(file.activity_type, file.activity_type)
-            
-            if file.instructor:
-                file_dict['instructor_display'] = instructor_presets.get(file.instructor, file.instructor)
-            
+                file_dict['activity_type_display'] = ACTIVITY_TYPE_DISPLAY.get(
+                    file.activity_type, file.activity_type
+                )
             files.append(file_dict)
         
         # Build timeline summary (Requirements: 1.1, 1.4)
@@ -770,8 +741,6 @@ def list_files():
             timeline_query = timeline_query.filter(File.uploader_id == uploader_id)
         if activity_type:
             timeline_query = timeline_query.filter(File.activity_type == activity_type)
-        if instructor:
-            timeline_query = timeline_query.filter(File.instructor == instructor)
         if media_type and media_type != 'all':
             if media_type == 'image':
                 timeline_query = timeline_query.filter(File.content_type.like('image/%'))
@@ -794,7 +763,6 @@ def list_files():
                     File.filename.ilike(search_pattern),
                     File.original_filename.ilike(search_pattern),
                     File.activity_type.ilike(search_pattern),
-                    File.instructor.ilike(search_pattern)
                 )
             )
         if date_from:
@@ -901,23 +869,14 @@ def get_file(file_id):
         # Get file dictionary with uploader info
         file_dict = file.to_dict(include_uploader=True)
         
-        # Add tag display names if tags exist
-        from services.tag_preset_service import tag_preset_service
-        
+        # Add activity_type display name
         if file.activity_type:
-            activity_type_preset = next(
-                (p for p in tag_preset_service.get_active_presets('activity_type') if p.value == file.activity_type),
-                None
+            from constants.activity_types import ACTIVITY_TYPE_DISPLAY
+            file_dict['activity_type_display'] = ACTIVITY_TYPE_DISPLAY.get(
+                file.activity_type, file.activity_type
             )
-            file_dict['activity_type_display'] = activity_type_preset.display_name if activity_type_preset else file.activity_type
-        
-        if file.instructor:
-            instructor_preset = next(
-                (p for p in tag_preset_service.get_active_presets('instructor') if p.value == file.instructor),
-                None
-            )
-            file_dict['instructor_display'] = instructor_preset.display_name if instructor_preset else file.instructor
-        
+
+
         current_app.logger.info(
             f'User {current_user_id} retrieved file {file_id}'
         )
@@ -1049,10 +1008,7 @@ def get_directories():
         current_user_id = int(get_jwt_identity())
         
         from sqlalchemy import func, extract
-        from services.tag_preset_service import tag_preset_service
-        
-        # Get activity type display names
-        activity_type_presets = {p.value: p.display_name for p in tag_preset_service.get_active_presets('activity_type')}
+        from constants.activity_types import ACTIVITY_TYPE_DISPLAY as activity_type_presets
         
         # Get file counts grouped by year, month, date, activity_name, activity_type
         file_stats = db.session.query(
@@ -1196,8 +1152,7 @@ def update_file(file_id):
     Headers: Authorization: Bearer <token>
     Body: {
         "activity_date": "2025-03-20",
-        "activity_type": "performance",
-        "instructor": "alex"
+        "activity_type": "regular_training"
     }
     
     Returns:
@@ -1267,48 +1222,34 @@ def update_file(file_id):
                     }
                 }), 400
         
-        # Update activity_type if provided
+        # Update activity_type if provided (None 表示未分类)
         if 'activity_type' in data:
-            activity_type = data['activity_type'].strip()
-            
-            # Validate activity_type
-            from services.tag_preset_service import tag_preset_service
-            activity_type_presets = tag_preset_service.get_active_presets('activity_type')
-            valid_activity_types = [preset.value for preset in activity_type_presets]
-            
-            if activity_type not in valid_activity_types:
+            from constants.activity_types import ACTIVITY_TYPE_VALUES
+            raw = data['activity_type']
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                activity_type = None
+            elif isinstance(raw, str):
+                activity_type = raw.strip()
+                if activity_type not in ACTIVITY_TYPE_VALUES:
+                    return jsonify({
+                        'error': {
+                            'code': 'FILE_008',
+                            'message': f'活动类型无效。有效选项: {", ".join(sorted(ACTIVITY_TYPE_VALUES))}'
+                        }
+                    }), 400
+            else:
                 return jsonify({
                     'error': {
                         'code': 'FILE_008',
-                        'message': f'活动类型无效。有效选项: {", ".join(valid_activity_types)}'
+                        'message': '活动类型必须是字符串或 null'
                     }
                 }), 400
-            
+
             if file.activity_type != activity_type:
                 file.activity_type = activity_type
                 changes_made = True
-        
-        # Update instructor if provided
-        if 'instructor' in data:
-            instructor = data['instructor'].strip()
-            
-            # Validate instructor
-            from services.tag_preset_service import tag_preset_service
-            instructor_presets = tag_preset_service.get_active_presets('instructor')
-            valid_instructors = [preset.value for preset in instructor_presets]
-            
-            if instructor not in valid_instructors:
-                return jsonify({
-                    'error': {
-                        'code': 'FILE_009',
-                        'message': f'带训老师标签无效。有效选项: {", ".join(valid_instructors)}'
-                    }
-                }), 400
-            
-            if file.instructor != instructor:
-                file.instructor = instructor
-                changes_made = True
-        
+
+
         # Update activity_name if provided
         if 'activity_name' in data:
             activity_name = data['activity_name'].strip() if data['activity_name'] else None
@@ -1466,7 +1407,6 @@ def update_file(file_id):
         s3_tags = {
             'activity_date': file.activity_date.isoformat() if file.activity_date else '',
             'activity_type': file.activity_type or '',
-            'instructor': file.instructor or '',
             'uploader_name': uploader_name,
             'upload_timestamp': file.uploaded_at.isoformat() + 'Z' if file.uploaded_at else '',
             'original_filename': file.original_filename or file.filename
@@ -1495,25 +1435,10 @@ def update_file(file_id):
             f'User {current_user_id} updated file {file_id}: {file.s3_key}'
         )
         
-        # Get tag preset display names for response
-        from services.tag_preset_service import tag_preset_service
-        
-        activity_type_preset = next(
-            (p for p in tag_preset_service.get_active_presets('activity_type') if p.value == file.activity_type),
-            None
-        )
-        activity_type_display = activity_type_preset.display_name if activity_type_preset else file.activity_type
-        
-        instructor_preset = next(
-            (p for p in tag_preset_service.get_active_presets('instructor') if p.value == file.instructor),
-            None
-        )
-        instructor_display = instructor_preset.display_name if instructor_preset else file.instructor
-        
         # Build response with display names
+        from constants.activity_types import display_name_for
         file_dict = file.to_dict(include_uploader=True)
-        file_dict['activity_type_display'] = activity_type_display
-        file_dict['instructor_display'] = instructor_display
+        file_dict['activity_type_display'] = display_name_for(file.activity_type)
         
         return jsonify({
             'success': True,
@@ -2533,8 +2458,8 @@ def batch_update_files():
     try:
         from auth.models import User
         from services.tag_service import tag_service
-        from services.tag_preset_service import tag_preset_service
-        
+        from constants.activity_types import ACTIVITY_TYPE_VALUES
+
         current_user_id = int(get_jwt_identity())
         current_user = User.query.get(current_user_id)
         is_admin = current_user and current_user.is_admin
@@ -2579,13 +2504,11 @@ def batch_update_files():
         
         # Validate activity_type if provided
         if 'activity_type' in updates and updates['activity_type']:
-            activity_type_presets = tag_preset_service.get_active_presets('activity_type')
-            valid_activity_types = [preset.value for preset in activity_type_presets]
-            if updates['activity_type'] not in valid_activity_types:
+            if updates['activity_type'] not in ACTIVITY_TYPE_VALUES:
                 return jsonify({
                     'error': {
                         'code': 'FILE_008',
-                        'message': f'活动类型无效。有效选项: {", ".join(valid_activity_types)}'
+                        'message': f'活动类型无效。有效选项: {", ".join(sorted(ACTIVITY_TYPE_VALUES))}'
                     }
                 }), 400
         
@@ -2823,12 +2746,8 @@ def get_activity_names_by_date():
         ).all()
         
         # Get activity type display names
-        from services.tag_preset_service import tag_preset_service
-        activity_type_presets = {
-            p.value: p.display_name 
-            for p in tag_preset_service.get_active_presets('activity_type')
-        }
-        
+        from constants.activity_types import ACTIVITY_TYPE_DISPLAY as activity_type_presets
+
         # Build response
         activity_names = []
         for activity_name, activity_type, file_count in results:
@@ -2940,11 +2859,7 @@ def get_activity_directory_info():
         is_owner_or_admin = current_user_id == first_file.uploader_id or (current_user and current_user.is_admin)
         
         # Get activity type display name
-        from services.tag_preset_service import tag_preset_service
-        activity_type_presets = {
-            p.value: p.display_name 
-            for p in tag_preset_service.get_active_presets('activity_type')
-        }
+        from constants.activity_types import ACTIVITY_TYPE_DISPLAY as activity_type_presets
         
         return jsonify({
             'success': True,
@@ -3038,14 +2953,12 @@ def update_activity_directory():
         
         # Validate new_activity_type if provided
         if new_activity_type:
-            from services.tag_preset_service import tag_preset_service
-            activity_type_presets = tag_preset_service.get_active_presets('activity_type')
-            valid_types = [p.value for p in activity_type_presets]
-            if new_activity_type not in valid_types:
+            from constants.activity_types import ACTIVITY_TYPE_VALUES
+            if new_activity_type not in ACTIVITY_TYPE_VALUES:
                 return jsonify({
                     'error': {
                         'code': 'VALIDATION_001',
-                        'message': f'无效的活动类型。有效选项: {", ".join(valid_types)}'
+                        'message': f'无效的活动类型。有效选项: {", ".join(sorted(ACTIVITY_TYPE_VALUES))}'
                     }
                 }), 400
         
@@ -3516,7 +3429,7 @@ def proxy_hls_content(file_id, hls_path):
         401: 未授权
     """
     import requests
-    from urllib.parse import urlparse, urljoin, quote
+    from urllib.parse import urlparse, unquote
     
     try:
         # 获取文件
@@ -3544,7 +3457,8 @@ def proxy_hls_content(file_id, hls_path):
             )
             
             # 获取 m3u8 内容
-            resp = requests.get(m3u8_signed_url, timeout=10)
+            # Upstream HLS playlists can be slow on cold cache, especially after Bitiful evicts transcodes.
+            resp = requests.get(m3u8_signed_url, timeout=30)
             if resp.status_code != 200:
                 return jsonify({
                     'error': {
@@ -3575,7 +3489,7 @@ def proxy_hls_content(file_id, hls_path):
                     if line.startswith('http'):
                         # 绝对 URL，提取路径部分
                         parsed = urlparse(line)
-                        path = parsed.path
+                        path = unquote(parsed.path)
                         style_idx = path.find('!style:')
                         if style_idx != -1:
                             segment_path = path[style_idx + 7:]
@@ -3587,9 +3501,9 @@ def proxy_hls_content(file_id, hls_path):
                     
                     # 如果是 .m3u8 子播放列表，使用代理 URL（这样分片也能被签名）
                     if segment_path.endswith('.m3u8'):
-                        # 子播放列表用完整的代理 URL
-                        api_base = request.host_url.rstrip('/')
-                        proxy_url = f"{api_base}/api/files/hls-proxy/{file_id}/{segment_path}"
+                        # Use a root-relative proxy URL so reverse-proxy/CDN host rewriting
+                        # does not break nested playlist fetching.
+                        proxy_url = f"/api/files/hls-proxy/{file_id}/{segment_path}"
                         new_lines.append(proxy_url)
                     else:
                         # 分片文件直接用签名 URL
@@ -3625,3 +3539,84 @@ def proxy_hls_content(file_id, hls_path):
                 'message': '代理 HLS 内容失败'
             }
         }), 500
+
+
+# ============================================================
+# AI 语义搜索:文本 query → embedding → vec0 近邻 → 排序文件
+# ============================================================
+
+@files_bp.route('/ai-search', methods=['POST'])
+@jwt_required()
+def ai_search():
+    """POST /api/files/ai-search { q, limit? } → 按语义距离排序的文件。
+    走 sqlite-vec MATCH(KNN);距离值越小越相似。
+    """
+    import time as _time
+    from sqlalchemy import text as _sql
+    import sqlite_vec
+    from services.embedding_service import EmbeddingClient
+
+    data = request.get_json(silent=True) or {}
+    q = (data.get('q') or '').strip()
+    limit = int(data.get('limit') or 30)
+    limit = max(1, min(limit, 200))
+
+    if not q:
+        return jsonify({'error': {'code': 'BAD_REQUEST', 'message': '查询内容不能为空'}}), 400
+
+    # 端到端计时:覆盖 embedding API + vec0 KNN,反映用户实际感知延迟
+    # (此前只盖 vec0 那段,实际 embedding 那一跳 200-500ms 没算进来)
+    t0 = _time.monotonic()
+
+    # 1) text → vector
+    try:
+        client = EmbeddingClient.from_env()
+        emb = client.embed_text(q)
+    except Exception as e:
+        current_app.logger.error(f'ai-search embed text failed: {e}')
+        return jsonify({'error': {'code': 'EMBED_FAILED', 'message': f'文本向量化失败: {e}'}}), 500
+
+    # 2) vec0 KNN
+    serialized = sqlite_vec.serialize_float32(emb.vector)
+    try:
+        rows = db.session.execute(
+            _sql(
+                "SELECT file_id, distance FROM image_embeddings "
+                "WHERE embedding MATCH :vec AND k = :k "
+                "ORDER BY distance"
+            ),
+            {"vec": serialized, "k": limit},
+        ).all()
+    except Exception as e:
+        current_app.logger.error(f'ai-search vec0 query failed: {e}')
+        return jsonify({'error': {'code': 'VEC_QUERY_FAILED', 'message': f'向量检索失败: {e}'}}), 500
+    ms_search = int((_time.monotonic() - t0) * 1000)
+
+    if not rows:
+        return jsonify({
+            'results': [], 'query': q,
+            'query_tokens': emb.input_tokens, 'ms': ms_search,
+        })
+
+    # 3) JOIN files,保持 vec0 排序
+    file_ids = [int(r[0]) for r in rows]
+    files = File.query.filter(File.id.in_(file_ids)).all()
+    by_id = {f.id: f for f in files}
+
+    results = []
+    for rank, (fid, dist) in enumerate(rows, start=1):
+        f = by_id.get(int(fid))
+        if f is None:
+            continue  # 孤儿向量(文件已删,vec 残留),跳过
+        results.append({
+            'rank': rank,
+            'distance': float(dist),
+            'file': f.to_dict(include_uploader=True),
+        })
+
+    return jsonify({
+        'results': results,
+        'query': q,
+        'query_tokens': emb.input_tokens,
+        'ms': ms_search,
+    })

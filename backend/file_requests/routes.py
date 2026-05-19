@@ -276,8 +276,6 @@ def approve_request(request_id):
                     need_s3_move = True
             if 'activity_name' in changes:
                 file.activity_name = changes['activity_name']
-            if 'instructor' in changes:
-                file.instructor = changes['instructor']
             if 'filename' in changes and changes['filename']:
                 new_filename = changes['filename'].strip()
                 if file.filename != new_filename:
@@ -435,14 +433,12 @@ def create_directory_request():
         
         # Validate new_activity_type if provided
         if proposed_changes.get('new_activity_type'):
-            from services.tag_preset_service import tag_preset_service
-            activity_type_presets = tag_preset_service.get_active_presets('activity_type')
-            valid_types = [p.value for p in activity_type_presets]
-            if proposed_changes['new_activity_type'] not in valid_types:
+            from constants.activity_types import ACTIVITY_TYPE_VALUES
+            if proposed_changes['new_activity_type'] not in ACTIVITY_TYPE_VALUES:
                 return jsonify({
                     'error': {
                         'code': 'VALIDATION_001',
-                        'message': f'无效的活动类型。有效选项: {", ".join(valid_types)}'
+                        'message': f'无效的活动类型。有效选项: {", ".join(sorted(ACTIVITY_TYPE_VALUES))}'
                     }
                 }), 400
         

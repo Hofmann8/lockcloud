@@ -104,9 +104,6 @@ function RequestCard({
           {request.proposed_changes.activity_name && (
             <p>活动名称: {request.proposed_changes.activity_name}</p>
           )}
-          {request.proposed_changes.instructor && (
-            <p>带训老师: {request.proposed_changes.instructor}</p>
-          )}
           {request.proposed_changes.free_tags && request.proposed_changes.free_tags.length > 0 && (
             <p>标签: {request.proposed_changes.free_tags.join(', ')}</p>
           )}

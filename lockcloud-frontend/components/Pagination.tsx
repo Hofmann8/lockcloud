@@ -1,5 +1,9 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+import { useMediaQuery } from '@/lib/hooks/useMediaQuery';
+import { Select } from '@/components/Select';
+
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
@@ -8,6 +12,52 @@ interface PaginationProps {
   onPageChange: (page: number) => void;
   hasNext: boolean;
   hasPrev: boolean;
+}
+
+// 根据 currentPage 在 totalPages 中的位置和 siblingCount，
+// 生成形如 [1, '...', 4, 5, 6, '...', 99] 的页码序列。
+// siblingCount = 当前页两侧各显示多少个页码。
+function buildPageRange(
+  currentPage: number,
+  totalPages: number,
+  siblingCount: number,
+): (number | 'ellipsis-l' | 'ellipsis-r')[] {
+  // 显示首+末+当前+两侧+最多两个省略号
+  const totalVisible = siblingCount * 2 + 5;
+
+  if (totalPages <= totalVisible) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  const leftSibling = Math.max(currentPage - siblingCount, 1);
+  const rightSibling = Math.min(currentPage + siblingCount, totalPages);
+
+  const showLeftEllipsis = leftSibling > 2;
+  const showRightEllipsis = rightSibling < totalPages - 1;
+
+  // 靠左：[1,2,3,...,k, '...', last]
+  if (!showLeftEllipsis && showRightEllipsis) {
+    const leftCount = 3 + 2 * siblingCount;
+    const left = Array.from({ length: leftCount }, (_, i) => i + 1);
+    return [...left, 'ellipsis-r', totalPages];
+  }
+
+  // 靠右：[1, '...', last-k, ..., last]
+  if (showLeftEllipsis && !showRightEllipsis) {
+    const rightCount = 3 + 2 * siblingCount;
+    const right = Array.from(
+      { length: rightCount },
+      (_, i) => totalPages - rightCount + 1 + i,
+    );
+    return [1, 'ellipsis-l', ...right];
+  }
+
+  // 中间：[1, '...', c-s, ..., c+s, '...', last]
+  const middle = Array.from(
+    { length: 2 * siblingCount + 1 },
+    (_, i) => leftSibling + i,
+  );
+  return [1, 'ellipsis-l', ...middle, 'ellipsis-r', totalPages];
 }
 
 export function Pagination({
@@ -19,166 +69,186 @@ export function Pagination({
   hasNext,
   hasPrev,
 }: PaginationProps) {
-  // 计算显示的页码范围
-  const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
-    const maxVisible = 7; // 最多显示7个页码按钮
+  // 响应式 sibling count：屏幕越大，显示页码越多。
+  const isMd = useMediaQuery('(min-width: 768px)');
+  const isLg = useMediaQuery('(min-width: 1024px)');
+  const isXl = useMediaQuery('(min-width: 1280px)');
+  const is2xl = useMediaQuery('(min-width: 1536px)');
 
-    if (totalPages <= maxVisible) {
-      // 如果总页数少于最大显示数，显示所有页码
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
-    } else {
-      // 总是显示第一页
-      pages.push(1);
+  let siblingCount = 1; // 默认 md：5 个数字按钮
+  if (is2xl) siblingCount = 4;       // [1] ... [c-4..c+4] ... [last] → 11 个数字
+  else if (isXl) siblingCount = 3;   // 9 个
+  else if (isLg) siblingCount = 2;   // 7 个
+  else if (isMd) siblingCount = 1;   // 5 个
 
-      if (currentPage > 3) {
-        pages.push('...');
-      }
+  const pages = buildPageRange(currentPage, totalPages, siblingCount);
 
-      // 显示当前页附近的页码
-      const start = Math.max(2, currentPage - 1);
-      const end = Math.min(totalPages - 1, currentPage + 1);
-
-      for (let i = start; i <= end; i++) {
-        pages.push(i);
-      }
-
-      if (currentPage < totalPages - 2) {
-        pages.push('...');
-      }
-
-      // 总是显示最后一页
-      pages.push(totalPages);
-    }
-
-    return pages;
-  };
-
-  const pageNumbers = getPageNumbers();
-
-  // 计算当前显示的项目范围
   const startItem = (currentPage - 1) * itemsPerPage + 1;
   const endItem = Math.min(currentPage * itemsPerPage, totalItems);
 
+  // 跳转输入：受控，输入时跟随，但提交时再 onPageChange。
+  const [jumpValue, setJumpValue] = useState<string>(String(currentPage));
+  useEffect(() => {
+    setJumpValue(String(currentPage));
+  }, [currentPage]);
+
+  const submitJump = () => {
+    const v = parseInt(jumpValue, 10);
+    if (!isNaN(v) && v >= 1 && v <= totalPages && v !== currentPage) {
+      onPageChange(v);
+    } else {
+      setJumpValue(String(currentPage));
+    }
+  };
+
+  const arrowBase =
+    'inline-flex items-center justify-center min-w-[40px] h-10 sm:h-9 px-2 rounded-lg text-sm font-medium transition-all';
+  const arrowEnabled =
+    'bg-white border border-gray-200 text-gray-700 hover:border-orange-300 hover:text-orange-600 hover:bg-orange-50 active:scale-95';
+  const arrowDisabled = 'bg-gray-50 border border-gray-100 text-gray-300 cursor-not-allowed';
+
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 py-4">
-      {/* 显示项目范围信息 */}
-      <div className="text-sm text-accent-gray">
-        显示 <span className="font-medium text-primary-black">{startItem}</span> 到{' '}
-        <span className="font-medium text-primary-black">{endItem}</span>，共{' '}
-        <span className="font-medium text-primary-black">{totalItems}</span> 项
+    <div className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center lg:justify-between">
+      {/* 项目范围信息 */}
+      <div className="text-sm text-gray-500 text-center lg:text-left">
+        显示 <span className="font-semibold text-gray-900">{startItem}</span>
+        {' - '}
+        <span className="font-semibold text-gray-900">{endItem}</span>
+        {' 共 '}
+        <span className="font-semibold text-gray-900">{totalItems}</span>
+        {' 项'}
       </div>
 
-      {/* 分页按钮 */}
-      <div className="flex items-center gap-2">
-        {/* 上一页按钮 - Mobile: 44x44px touch target */}
+      {/* 分页按钮区 */}
+      <div className="flex items-center justify-center gap-1.5">
+        {/* 上一页 */}
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={!hasPrev}
-          className={`
-            min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0
-            px-3 py-2 rounded-lg text-sm font-medium transition-colors
-            flex items-center justify-center
-            ${
-              hasPrev
-                ? 'bg-white border border-accent-gray/30 text-primary-black hover:bg-accent-gray/10 active:bg-accent-gray/20'
-                : 'bg-accent-gray/10 text-accent-gray/50 cursor-not-allowed'
-            }
-          `}
+          className={`${arrowBase} ${hasPrev ? arrowEnabled : arrowDisabled}`}
           aria-label="上一页"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
 
-        {/* 页码按钮 */}
+        {/* 页码 - 桌面 */}
         <div className="hidden sm:flex items-center gap-1">
-          {pageNumbers.map((page, index) => {
-            if (page === '...') {
+          {pages.map((p) => {
+            if (p === 'ellipsis-l' || p === 'ellipsis-r') {
               return (
-                <span key={`ellipsis-${index}`} className="px-3 py-2 text-accent-gray">
-                  ...
+                <span
+                  key={p}
+                  className="inline-flex items-center justify-center w-9 h-9 text-gray-400 select-none"
+                  aria-hidden="true"
+                >
+                  …
                 </span>
               );
             }
-
-            const pageNum = page as number;
-            const isActive = pageNum === currentPage;
-
+            const isActive = p === currentPage;
             return (
               <button
-                key={pageNum}
-                onClick={() => onPageChange(pageNum)}
+                key={p}
+                onClick={() => onPageChange(p)}
+                aria-label={`第 ${p} 页`}
+                aria-current={isActive ? 'page' : undefined}
                 className={`
-                  min-w-[40px] min-h-[40px] px-3 py-2 rounded-lg text-sm font-medium transition-colors
-                  flex items-center justify-center
-                  ${
-                    isActive
-                      ? 'bg-accent-blue text-white'
-                      : 'bg-white border border-accent-gray/30 text-primary-black hover:bg-accent-gray/10'
+                  inline-flex items-center justify-center
+                  min-w-9 h-9 px-2.5 rounded-lg text-sm font-medium transition-all
+                  ${isActive
+                    ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600'
+                    : 'bg-white border border-gray-200 text-gray-700 hover:border-orange-300 hover:text-orange-600 hover:bg-orange-50'
                   }
                 `}
-                aria-label={`第 ${pageNum} 页`}
-                aria-current={isActive ? 'page' : undefined}
               >
-                {pageNum}
+                {p}
               </button>
             );
           })}
         </div>
 
-        {/* 移动端：简单的页码显示 */}
-        <div className="sm:hidden px-3 py-2 text-sm font-medium text-primary-black min-h-[44px] flex items-center">
-          {currentPage} / {totalPages}
+        {/* 页码 - 移动端紧凑 */}
+        <div className="sm:hidden inline-flex items-center px-3 h-10 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg">
+          <span className="text-orange-600">{currentPage}</span>
+          <span className="text-gray-400 mx-1">/</span>
+          <span>{totalPages}</span>
         </div>
 
-        {/* 下一页按钮 - Mobile: 44x44px touch target */}
+        {/* 下一页 */}
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={!hasNext}
-          className={`
-            min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0
-            px-3 py-2 rounded-lg text-sm font-medium transition-colors
-            flex items-center justify-center
-            ${
-              hasNext
-                ? 'bg-white border border-accent-gray/30 text-primary-black hover:bg-accent-gray/10 active:bg-accent-gray/20'
-                : 'bg-accent-gray/10 text-accent-gray/50 cursor-not-allowed'
-            }
-          `}
+          className={`${arrowBase} ${hasNext ? arrowEnabled : arrowDisabled}`}
           aria-label="下一页"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
           </svg>
         </button>
       </div>
 
-      {/* 快速跳转（可选） */}
+      {/* 跳转 - 页数足够多时显示 */}
       {totalPages > 10 && (
-        <div className="hidden lg:flex items-center gap-2">
-          <span className="text-sm text-accent-gray">跳转到</span>
-          <input
-            type="number"
-            min={1}
-            max={totalPages}
-            defaultValue={currentPage}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                const value = parseInt((e.target as HTMLInputElement).value);
-                if (value >= 1 && value <= totalPages) {
-                  onPageChange(value);
+        <div className="hidden md:flex items-center justify-center gap-2 text-sm text-gray-500">
+          <span>跳转</span>
+          <div className="relative">
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={jumpValue}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^\d]/g, '');
+                setJumpValue(v);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  submitJump();
                 }
-              }
-            }}
-            className="w-16 px-2 py-2 text-base border border-accent-gray/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-blue/20 min-h-[40px]"
-          />
-          <span className="text-sm text-accent-gray">页</span>
+              }}
+              onBlur={submitJump}
+              aria-label="跳转到指定页"
+              className="
+                w-14 h-9 px-2 text-center text-sm font-medium text-gray-900
+                bg-white border border-gray-200 rounded-lg
+                focus:outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/30
+                transition-all
+              "
+            />
+          </div>
+          <span>页</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// 暴露给文件列表那种"每页 N 条"的选择器使用；导出统一封装的样式。
+export function PerPageSelect({
+  value,
+  onChange,
+  options = [12, 24, 48, 96],
+  className = '',
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  options?: number[];
+  className?: string;
+}) {
+  return (
+    <div className={`inline-flex items-center gap-2 text-sm text-gray-500 ${className}`}>
+      <span className="hidden sm:inline">每页</span>
+      <Select
+        size="sm"
+        value={String(value)}
+        onChange={(v) => onChange(parseInt(v, 10))}
+        options={options.map((n) => ({ value: String(n), label: `${n} 条` }))}
+        ariaLabel="每页显示数量"
+        className="w-24"
+      />
     </div>
   );
 }

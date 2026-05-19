@@ -355,106 +355,42 @@ def validate_activity_date(field_name='activity_date'):
 
 
 def validate_activity_type(field_name='activity_type'):
-    """
-    Decorator to validate activity type is in preset list
-    
-    Args:
-        field_name: Name of the activity type field in request data (default: 'activity_type')
-        
-    Usage:
-        @validate_activity_type()
-        def upload():
-            data = request.get_json()
-            # data['activity_type'] is guaranteed to be a valid preset
+    """校验 activity_type 在白名单内。
+
+    null / 缺省 / 空字符串均视为"未分类"(合法),不抛错;字符串值必须在常量
+    ACTIVITY_TYPE_VALUES 中。
     """
     from exceptions import InvalidActivityTypeError
-    from services.tag_preset_service import TagPresetService
-    
+    from constants.activity_types import ACTIVITY_TYPE_VALUES
+
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
             data = request.get_json()
-            
+
             if field_name not in data:
-                raise MissingFieldError(field_name)
-            
-            activity_type = data[field_name]
-            
-            # Validate activity type is a string
-            if not isinstance(activity_type, str):
-                raise InvalidActivityTypeError('活动类型必须是字符串')
-            
-            activity_type = activity_type.strip()
-            
-            if not activity_type:
-                raise InvalidActivityTypeError('活动类型不能为空')
-            
-            # Validate activity type is in preset list
-            presets = TagPresetService.get_active_presets('activity_type')
-            valid_values = [preset.value for preset in presets]
-            
-            if activity_type not in valid_values:
+                return f(*args, **kwargs)
+
+            value = data[field_name]
+            if value is None:
+                return f(*args, **kwargs)
+
+            if not isinstance(value, str):
+                raise InvalidActivityTypeError('活动类型必须是字符串或 null')
+
+            value = value.strip()
+            if not value:
+                return f(*args, **kwargs)
+
+            if value not in ACTIVITY_TYPE_VALUES:
                 raise InvalidActivityTypeError(
-                    f'活动类型无效，请从预设列表中选择',
+                    '活动类型无效,请从预设列表中选择',
                     details={
-                        'provided': activity_type,
-                        'valid_options': valid_values
-                    }
+                        'provided': value,
+                        'valid_options': sorted(ACTIVITY_TYPE_VALUES),
+                    },
                 )
-            
-            return f(*args, **kwargs)
-        return wrapper
-    return decorator
 
-
-def validate_instructor(field_name='instructor'):
-    """
-    Decorator to validate instructor is in preset list
-    
-    Args:
-        field_name: Name of the instructor field in request data (default: 'instructor')
-        
-    Usage:
-        @validate_instructor()
-        def upload():
-            data = request.get_json()
-            # data['instructor'] is guaranteed to be a valid preset
-    """
-    from exceptions import InvalidInstructorError
-    from services.tag_preset_service import TagPresetService
-    
-    def decorator(f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            data = request.get_json()
-            
-            if field_name not in data:
-                raise MissingFieldError(field_name)
-            
-            instructor = data[field_name]
-            
-            # Validate instructor is a string
-            if not isinstance(instructor, str):
-                raise InvalidInstructorError('带训老师必须是字符串')
-            
-            instructor = instructor.strip()
-            
-            if not instructor:
-                raise InvalidInstructorError('带训老师不能为空')
-            
-            # Validate instructor is in preset list
-            presets = TagPresetService.get_active_presets('instructor')
-            valid_values = [preset.value for preset in presets]
-            
-            if instructor not in valid_values:
-                raise InvalidInstructorError(
-                    f'带训老师标签无效，请从预设列表中选择',
-                    details={
-                        'provided': instructor,
-                        'valid_options': valid_values
-                    }
-                )
-            
             return f(*args, **kwargs)
         return wrapper
     return decorator

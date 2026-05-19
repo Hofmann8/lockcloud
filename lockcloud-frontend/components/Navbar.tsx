@@ -11,6 +11,7 @@ import { useTransferQueueStore } from '@/stores/transferQueueStore';
 import { UserAvatar } from './UserAvatar';
 import { UserMenu } from './UserMenu';
 import { AvatarUploadDialog } from './AvatarUploadDialog';
+import { AiSearchBox } from './AiSearchBox';
 import toast from 'react-hot-toast';
 
 export function Navbar() {
@@ -118,38 +119,31 @@ export function Navbar() {
     }
   }, [transferLabels.length]);
 
-  const isActive = (path: string) => {
-    if (path === '/admin') {
-      return pathname?.startsWith('/admin');
-    }
-    return pathname === path;
-  };
+  const isActive = (path: string) => pathname === path;
 
-  // Only show admin link for admin users
   const navLinks = [
     { href: '/files', label: '文件' },
     { href: '/upload', label: '传输' },
     { href: '/requests', label: '请求', badge: pendingCount || undefined },
     { href: '/changelog', label: '更新日志' },
-    ...(user?.is_admin ? [{ href: '/admin', label: '管理' }] : []),
   ];
 
   // Tablet: show only essential links
-  const tabletNavLinks = isTablet 
-    ? navLinks.filter(link => ['/files', '/upload', '/requests'].includes(link.href) || link.href === '/admin')
+  const tabletNavLinks = isTablet
+    ? navLinks.filter(link => ['/files', '/upload', '/requests'].includes(link.href))
     : navLinks;
 
   return (
     <>
       <nav className="bg-white border-b border-black/10 sticky top-0 z-50">
         <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center h-16 gap-4">
             {/* Left: Logo + Team Name */}
-            <div className="flex items-center">
+            <div className="flex items-center shrink-0">
               <Link href="/files" className="flex items-center space-x-3">
-                <img 
-                  src="https://funkandlove-main.s3.bitiful.net/public/icon.png" 
-                  alt="Funk & Love Logo" 
+                <img
+                  src="https://funkandlove-main.s3.bitiful.net/public/icon.png"
+                  alt="Funk & Love Logo"
                   className="w-10 h-10 object-contain"
                 />
                 <h1 className="text-2xl font-handwritten font-bold text-black hover:text-orange-500 transition-colors">
@@ -158,8 +152,13 @@ export function Navbar() {
               </Link>
             </div>
 
+            {/* Center: AI Search (Desktop & Tablet) */}
+            <div className="hidden md:flex flex-1 justify-center px-4">
+              <AiSearchBox />
+            </div>
+
             {/* Right: Navigation Links + User Menu (Desktop & Tablet) */}
-            <div className="hidden md:flex items-center space-x-6 lg:space-x-8">
+            <div className="hidden md:flex items-center space-x-6 lg:space-x-8 shrink-0">
               {/* Navigation Links - Use tabletNavLinks for responsive display */}
               {tabletNavLinks.map((link) => (
                 <Link
@@ -221,7 +220,7 @@ export function Navbar() {
             </div>
 
             {/* Mobile Menu Button - Hamburger */}
-            <div className="md:hidden flex items-center gap-2">
+            <div className="md:hidden flex items-center gap-1">
               {/* Mobile Transfer Status - compact version */}
               {totalActive > 0 && (
                 <Link

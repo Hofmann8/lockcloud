@@ -125,13 +125,6 @@ class InvalidActivityTypeError(FileError):
         super().__init__(message, code='FILE_008', status_code=400, details=details)
 
 
-class InvalidInstructorError(FileError):
-    """Instructor is invalid or not in preset list"""
-    
-    def __init__(self, message='带训老师标签无效', details=None):
-        super().__init__(message, code='FILE_009', status_code=400, details=details)
-
-
 class S3Error(LockCloudException):
     """S3 storage service errors"""
     
@@ -213,29 +206,3 @@ class RateLimitExceededError(LockCloudException):
         super().__init__(message, code, status_code, details)
 
 
-class TagError(LockCloudException):
-    """Tag preset errors"""
-    
-    def __init__(self, message, code='TAG_ERROR', status_code=400, details=None):
-        super().__init__(message, code, status_code, details)
-
-
-class TagPresetNotFoundError(TagError):
-    """Tag preset does not exist"""
-    
-    def __init__(self, message='标签预设不存在', details=None):
-        super().__init__(message, code='TAG_001', status_code=404, details=details)
-
-
-class TagPresetAlreadyExistsError(TagError):
-    """Tag preset already exists"""
-    
-    def __init__(self, message='标签预设已存在', details=None):
-        super().__init__(message, code='TAG_002', status_code=409, details=details)
-
-
-class TagPresetPermissionDeniedError(TagError):
-    """User does not have permission to manage tag presets"""
-    
-    def __init__(self, message='无权限管理标签预设', details=None):
-        super().__init__(message, code='TAG_003', status_code=403, details=details)

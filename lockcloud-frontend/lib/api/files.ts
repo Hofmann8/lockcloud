@@ -91,6 +91,30 @@ export const deleteFile = async (fileId: number): Promise<{ message: string }> =
 };
 
 /**
+ * AI 语义搜索:文本 query → 后端跑 embedding → vec0 近邻 → 排序文件
+ */
+export interface AiSearchResult {
+  rank: number;
+  distance: number;
+  file: File;
+}
+
+export interface AiSearchResponse {
+  results: AiSearchResult[];
+  query: string;
+  query_tokens: number;
+  ms: number;
+}
+
+export const aiSearch = async (
+  q: string,
+  limit = 30
+): Promise<AiSearchResponse> => {
+  const response = await apiClient.post('/api/files/ai-search', { q, limit });
+  return response.data;
+};
+
+/**
  * Get directory structure based on tag presets
  */
 export const getDirectories = async (): Promise<{ directories: DirectoryNode[] }> => {
@@ -107,7 +131,6 @@ export const updateFile = async (
     activity_date?: string;
     activity_type?: string;
     activity_name?: string;
-    instructor?: string;
     filename?: string;
     free_tags?: string[];
   }

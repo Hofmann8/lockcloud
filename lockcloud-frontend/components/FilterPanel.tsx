@@ -5,7 +5,7 @@ import { FileFilters as FileFiltersType } from '@/types';
 import { MediaTypeFilter, MediaType } from './MediaTypeFilter';
 import { FreeTagFilter } from './FreeTagFilter';
 import { Button } from './Button';
-import { useActivityTypes } from '@/lib/hooks/useTagPresets';
+import { ACTIVITY_TYPES, activityTypeLabel } from '@/lib/constants/activityTypes';
 import { useIsMobile } from '@/lib/hooks/useMediaQuery';
 
 interface FilterPanelProps {
@@ -49,8 +49,7 @@ export function FilterPanel({
     tags: filters.tags || [],
   });
 
-  // Load tag presets
-  const { data: activityTypes, isLoading: loadingActivityTypes } = useActivityTypes();
+  const activityTypes = ACTIVITY_TYPES;
 
   // Sync local filters when external filters change
   useEffect(() => {
@@ -176,13 +175,12 @@ export function FilterPanel({
               value={localFilters.activity_type || ''}
               onChange={handleActivityTypeChange}
               className="input-functional w-full px-4 py-3 md:py-2.5 text-base text-primary-black min-h-[44px] rounded-lg"
-              disabled={loadingActivityTypes}
               aria-label="选择活动类型"
             >
               <option value="">全部</option>
-              {activityTypes?.filter((preset) => preset.is_active).map((preset) => (
-                <option key={preset.id} value={preset.value}>
-                  {preset.display_name}
+              {activityTypes.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
                 </option>
               ))}
             </select>
@@ -338,7 +336,7 @@ export function FilterPanel({
           )}
           {filters.activity_type && (
             <span className="inline-flex items-center px-2 py-0.5 bg-accent-blue/10 text-accent-blue rounded-full text-xs">
-              活动类型: {activityTypes?.find((p) => p.value === filters.activity_type)?.display_name || filters.activity_type}
+              活动类型: {activityTypeLabel(filters.activity_type)}
             </span>
           )}
           {filters.tags && filters.tags.length > 0 && (

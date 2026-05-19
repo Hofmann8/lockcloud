@@ -4,11 +4,12 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { updateFile } from '@/lib/api/files';
 import { createRequest } from '@/lib/api/requests';
-import { getTagPresets } from '@/lib/api/tag-presets';
+import { ACTIVITY_TYPES } from '@/lib/constants/activityTypes';
 import { searchTags } from '@/lib/api/tags';
 import { File } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/Button';
+import { Select } from '@/components/Select';
 import { useIsMobile } from '@/lib/hooks/useMediaQuery';
 import toast from 'react-hot-toast';
 
@@ -53,11 +54,6 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
     setFreeTags(file.free_tags?.map(t => t.name) || []);
     setTagInput('');
   }
-
-  const { data: activityTypePresets } = useQuery({
-    queryKey: ['tagPresets', 'activity_type'],
-    queryFn: () => getTagPresets('activity_type'),
-  });
 
   const { data: tagSuggestions } = useQuery({
     queryKey: ['tags', 'search', tagInput],
@@ -147,7 +143,7 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
   };
 
   const isPending = updateMutation.isPending || requestMutation.isPending;
-  const activityTypeOptions = activityTypePresets || [];
+  const activityTypeOptions = ACTIVITY_TYPES;
   const isMobile = useIsMobile();
 
   if (!isOpen) return null;
@@ -242,16 +238,16 @@ export function EditFileDialog({ file, isOpen, onClose, onSuccess }: EditFileDia
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">活动类型</label>
-                <select
+                <Select
                   value={activityType}
-                  onChange={(e) => setActivityType(e.target.value)}
-                  className="w-full px-3 py-2.5 text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-400 transition-all min-h-[44px]"
-                >
-                  <option value="">请选择</option>
-                  {activityTypeOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.display_name}</option>
-                  ))}
-                </select>
+                  onChange={setActivityType}
+                  placeholder="请选择"
+                  ariaLabel="活动类型"
+                  options={activityTypeOptions.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
               </div>
             </div>
 

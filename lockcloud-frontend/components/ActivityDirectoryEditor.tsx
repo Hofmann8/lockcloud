@@ -6,7 +6,7 @@ import { Modal } from './Modal';
 import { Button } from './Button';
 import { getActivityDirectoryInfo, updateActivityDirectory } from '@/lib/api/files';
 import { createDirectoryRequest } from '@/lib/api/requests';
-import { useActivityTypes } from '@/lib/hooks/useTagPresets';
+import { ACTIVITY_TYPES } from '@/lib/constants/activityTypes';
 import { showToast } from '@/lib/utils/toast';
 
 interface ActivityDirectoryEditorProps {
@@ -31,7 +31,7 @@ export function ActivityDirectoryEditor({
   const [newActivityType, setNewActivityType] = useState(activityType);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { data: activityTypes = [] } = useActivityTypes();
+  const activityTypes = ACTIVITY_TYPES;
 
   const { data: directoryData, isLoading } = useQuery({
     queryKey: ['activity-directory', activityDate, activityName, activityType],
@@ -186,8 +186,8 @@ export function ActivityDirectoryEditor({
                 className="w-full px-3 py-2.5 text-base border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent min-h-[44px]"
               >
                 {activityTypes.map((type) => (
-                  <option key={type.id} value={type.value}>
-                    {type.display_name}
+                  <option key={type.value} value={type.value}>
+                    {type.label}
                   </option>
                 ))}
               </select>

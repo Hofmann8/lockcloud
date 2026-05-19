@@ -6,7 +6,6 @@ export { Modal, ModalFooter } from './Modal';
 export { ErrorBoundary } from './ErrorBoundary';
 export { LoadingSpinner, LoadingOverlay, InlineLoading } from './LoadingSpinner';
 export { MobileMenuButton } from './MobileMenuButton';
-export { TagSelector } from './TagSelector';
 export { Pagination } from './Pagination';
 export { 
   Skeleton, 
@@ -52,3 +51,6 @@ export { BatchDownloadDialog } from './BatchDownloadDialog';
 // User components
 export { UserAvatar, UserAvatarInline } from './UserAvatar';
 export { AvatarUploadDialog } from './AvatarUploadDialog';
+
+// AI Search
+export { AiSearchBox } from './AiSearchBox';
