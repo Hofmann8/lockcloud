@@ -13,7 +13,11 @@ from datetime import datetime
 
 class S3PublicService:
     """Service class for public S3 bucket operations"""
-    
+
+    # 公开桶里所有"正式"产出走这层前缀,不要散在根目录,跟 _inspect/ _try/
+    # 等调试前缀也分开,清理时一目了然。
+    COVER_PREFIX = 'covers/'
+
     def __init__(self):
         self._client = None
     
@@ -56,16 +60,105 @@ class S3PublicService:
     def get_public_url(self, key: str) -> str:
         """
         Get public URL for an object (direct access without signing)
-        
+
         Args:
             key: S3 object key
-        
+
         Returns:
             Public URL string
         """
         endpoint = current_app.config.get('S3_PUBLIC_ENDPOINT', '')
         return f"{endpoint}/{key}"
-    
+
+    @classmethod
+    def cover_key(cls, s3_key: str) -> str:
+        """私有桶 key → 公开桶 cover mirror key(套 covers/ 前缀)。"""
+        return f"{cls.COVER_PREFIX}{s3_key}"
+
+    def mirror_cover(self, s3_key: str) -> str:
+        """正式 cover mirror:私有桶 s3_key → 公开桶 covers/s3_key。
+        给 mirror_cover_files 这类"正经数据流"用,前端 person 头像 URL 走这层。
+        详见 [[decision_public_mirror_bucket]]。
+
+        临时 inspect / 调试场景请用 copy_to_public(dst_key='_inspect/...') 扔到 '_' 前缀,
+        别跟正式 cover 混。
+        """
+        return self.copy_to_public(s3_key, self.cover_key(s3_key))
+
+    def unmirror_cover(self, s3_key: str) -> bool:
+        """删除公开桶里 covers/s3_key 这一个对象。给 prune 用。"""
+        try:
+            self.client.delete_object(
+                Bucket=self.get_bucket_name(),
+                Key=self.cover_key(s3_key),
+            )
+            return True
+        except ClientError:
+            return False
+
+    def list_cover_keys(self):
+        """枚举公开桶 covers/ 下所有对象 key(不含前缀),给 prune 比对用。"""
+        bucket = self.get_bucket_name()
+        paginator = self.client.get_paginator('list_objects_v2')
+        prefix_len = len(self.COVER_PREFIX)
+        out = []
+        for page in paginator.paginate(Bucket=bucket, Prefix=self.COVER_PREFIX):
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if key.startswith(self.COVER_PREFIX):
+                    out.append(key[prefix_len:])
+        return out
+
+    # 老接口,保留兼容旧调用方;但语义已变 —— 现在永远写 covers/ 前缀
+    def mirror_from_private(self, s3_key: str) -> str:
+        return self.mirror_cover(s3_key)
+
+    def copy_to_public(self, src_key: str, dst_key: str) -> str:
+        """通用 server-side copy:私有桶 src_key → 公开桶 dst_key。
+
+        缤纷云 endpoint 同源,几乎瞬时,不走 VPS 带宽。幂等覆盖。
+        临时/中转操作把 dst_key 放到 `_inspect/`、`_tmp/` 这类专属前缀下,
+        别散在根目录(否则跟正式 mirror 的文件混淆,清理麻烦)。
+        """
+        private_bucket = current_app.config.get('S3_BUCKET')
+        public_bucket = self.get_bucket_name()
+        if not private_bucket:
+            raise ValueError('S3_BUCKET not configured')
+
+        self.client.copy_object(
+            Bucket=public_bucket,
+            Key=dst_key,
+            CopySource={'Bucket': private_bucket, 'Key': src_key},
+            MetadataDirective='COPY',
+        )
+        return self.get_public_url(dst_key)
+
+    def delete_prefix(self, prefix: str) -> int:
+        """删除公开桶下指定 prefix 的所有对象,返删除数量。
+        给 inspect / tmp 这类临时数据的清理用,安全门槛:prefix 必须以 '_' 开头
+        (`_inspect/`、`_tmp/` 等),避免误删正式数据。
+        """
+        if not prefix or not prefix.startswith('_'):
+            raise ValueError(
+                f"delete_prefix 只允许 '_' 开头的临时前缀,拒绝: {prefix!r}"
+            )
+        bucket = self.get_bucket_name()
+        paginator = self.client.get_paginator('list_objects_v2')
+        deleted = 0
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            keys = [{'Key': obj['Key']} for obj in page.get('Contents', [])]
+            if not keys:
+                continue
+            # boto3 delete_objects 一次最多 1000 个
+            for i in range(0, len(keys), 1000):
+                batch = keys[i:i + 1000]
+                self.client.delete_objects(
+                    Bucket=bucket,
+                    Delete={'Objects': batch, 'Quiet': True},
+                )
+                deleted += len(batch)
+        return deleted
+
     # ============================================================
     # Avatar Operations
     # ============================================================

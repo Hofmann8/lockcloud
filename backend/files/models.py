@@ -71,6 +71,11 @@ class File(db.Model):
         db.String(32), nullable=False, default='pending', index=True
     )
 
+    # 公开桶 mirror 时间(由 add_public_mirror_at.py 迁移加列)
+    # NULL = 未 mirror;非空 = 已 server-side copy 到 funkandlove-cloud-public,
+    # 前端可拼 ?rect= 等动态参数 URL。详见 decision_public_mirror_bucket.md
+    public_mirror_at = db.Column(db.String(64), nullable=True)
+
     # Relationships
     logs = db.relationship('FileLog', backref='file', lazy='dynamic')
     tags = db.relationship('Tag', secondary='file_tags', back_populates='files')

@@ -111,7 +111,7 @@ export function BatchDownloadDialog({
                       </svg>
                     )}
                     <span className="text-sm text-gray-900 dark:text-gray-100 truncate">
-                      {file.original_filename || file.filename}
+                      {file.filename || file.original_filename}
                     </span>
                   </div>
                   <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">

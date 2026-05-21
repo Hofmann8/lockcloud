@@ -1,9 +1,10 @@
 'use client';
 
 import { Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { listFiles, aiSearch } from '@/lib/api/files';
+import { listFiles, aiSearch, faceSearch, getPersonFiles, setPersonCover } from '@/lib/api/files';
 import { searchTags } from '@/lib/api/tags';
 import { FileFilters, File, TagWithCount } from '@/types';
 import { FileGrid } from '@/components/FileGrid';
@@ -45,6 +46,13 @@ function FilesPageContent() {
   // 跟"按年月活动筛选"是同一层的另一种 query 模式。
   const aiQuery = searchParams.get('ai') || '';
   const isAiMode = aiQuery.length > 0;
+
+  // 人脸模式:?face=<face_id> 走 face KNN(找同一个人,未聚类的脸用这个)
+  //           ?person=<person_id> 走 person 视图(已聚类的归属人)
+  const faceIdParam = searchParams.get('face');
+  const personIdParam = searchParams.get('person');
+  const isFaceMode = !!faceIdParam;
+  const isPersonMode = !!personIdParam;
 
   // Search tags when input changes
   const { data: searchResults = [] } = useQuery({
@@ -96,8 +104,37 @@ function FilesPageContent() {
   };
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: isAiMode ? ['ai-search', aiQuery] : ['files', filters],
+    queryKey: isFaceMode
+      ? ['face-search', faceIdParam]
+      : isPersonMode
+      ? ['person-files', personIdParam, filters.page]
+      : isAiMode
+      ? ['ai-search', aiQuery]
+      : ['files', filters],
     queryFn: async () => {
+      if (isFaceMode) {
+        const r = await faceSearch(parseInt(faceIdParam!, 10), 60);
+        return {
+          files: r.results.map((x) => x.file),
+          pagination: {
+            total: r.results.length,
+            page: 1,
+            per_page: r.results.length || 1,
+            pages: 1,
+            has_next: false,
+            has_prev: false,
+          },
+          _face: { ms: r.ms, query_face_id: r.query_face_id },
+        };
+      }
+      if (isPersonMode) {
+        const r = await getPersonFiles(parseInt(personIdParam!, 10), filters.page, filters.per_page);
+        return {
+          files: r.files,
+          pagination: r.pagination,
+          _person: r.person,
+        };
+      }
       if (isAiMode) {
         const r = await aiSearch(aiQuery, 50);
         // 适配 FileListResponse 的形状,FileGrid / EmptyState 等下游代码无需改动。
@@ -128,6 +165,14 @@ function FilesPageContent() {
   useEffect(() => {
     clearSelection();
   }, [searchParams, clearSelection]);
+
+  // 把当前列表 URL(含搜索/筛选/AI 查询)记在 sessionStorage,
+  // 详情页的"返回"按钮据此回到用户进来时的列表状态,
+  // 避免方向键翻图导致 router.back() 倒退回上一张图而不是回列表。
+  useEffect(() => {
+    const params = searchParams.toString();
+    sessionStorage.setItem('files-list-return-url', params ? `/files?${params}` : '/files');
+  }, [searchParams]);
 
   // Media type change - immediate
   const handleMediaTypeChange = useCallback((type: MediaType) => {
@@ -188,11 +233,45 @@ function FilesPageContent() {
     queryClient.invalidateQueries({ queryKey: ['directories'] });
   }, [refetch, queryClient]);
 
-  const renderSelectableFileCard = useCallback((file: File) => (
-    <SelectableFileCard file={file}>
-      <FileCardSimple file={file} onFileUpdate={handleFileUpdate} />
-    </SelectableFileCard>
-  ), [handleFileUpdate]);
+  // person 模式下,"设为代表"按钮挂载点
+  // 显示名优先 person.name,没起名就用 #id —— 跟人物页落款一致
+  const personMeta = isPersonMode
+    ? (data as { _person?: { id: number; name: string | null } } | undefined)?._person
+    : undefined;
+  const personDisplay = personMeta?.name?.trim() || (personIdParam ? `#${personIdParam}` : '');
+  const setCoverMut = useMutation({
+    mutationFn: ({ fileId }: { fileId: number }) =>
+      setPersonCover(personMeta!.id, fileId),
+    onMutate: () => {
+      // 显示长时 loading toast,handler 内会同步等 S3 mirror,可能 1~2s
+      const toastId = toast.loading(`正在设为 ${personDisplay} 的代表…`);
+      return { toastId };
+    },
+    onSuccess: (_data, _vars, ctx) => {
+      toast.success(`已设为 ${personDisplay} 的代表`, { id: ctx?.toastId });
+      queryClient.invalidateQueries({ queryKey: ['persons'] });
+      queryClient.invalidateQueries({ queryKey: ['people-in-file'] });
+    },
+    onError: (err, _vars, ctx) => {
+      toast.error(`设置失败:${(err as Error).message}`, { id: ctx?.toastId });
+    },
+  });
+  const pendingCoverFileId = setCoverMut.variables?.fileId;
+
+  const renderSelectableFileCard = useCallback((file: File) => {
+    const cover = isPersonMode && personMeta
+      ? {
+          label: `设为${personDisplay}的代表`,
+          onClick: () => setCoverMut.mutate({ fileId: file.id }),
+          isPending: setCoverMut.isPending && pendingCoverFileId === file.id,
+        }
+      : undefined;
+    return (
+      <SelectableFileCard file={file}>
+        <FileCardSimple file={file} onFileUpdate={handleFileUpdate} setAsCover={cover} />
+      </SelectableFileCard>
+    );
+  }, [handleFileUpdate, isPersonMode, personMeta, personDisplay, setCoverMut, pendingCoverFileId]);
 
   // Build breadcrumb from current filters
   const breadcrumb = useMemo(() => {
@@ -283,6 +362,45 @@ function FilesPageContent() {
             )}
           </>
         )}
+        {/* Person 模式 chip:点详情页人脸框跳过来的 */}
+        {isPersonMode && (
+          <>
+            <span className="text-gray-300">/</span>
+            <span className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 bg-orange-50 border border-orange-500/30 text-orange-600 text-xs rounded-full">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="font-medium">
+                {(data as { _person?: { name: string | null; id: number; face_count: number } } | undefined)?._person?.name
+                  || `#${personIdParam}`}
+              </span>
+              <button onClick={() => router.push('/files')} className="ml-0.5 p-0.5 rounded-full hover:bg-orange-100" aria-label="退出">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+            <span className="text-[11px] text-gray-400">{data?.pagination.total ?? 0} 张照片</span>
+          </>
+        )}
+        {/* Face 模式 chip:未聚类脸的 KNN 搜索 */}
+        {isFaceMode && (
+          <>
+            <span className="text-gray-300">/</span>
+            <span className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 bg-orange-50 border border-orange-500/30 text-orange-600 text-xs rounded-full">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <span className="font-medium">相似人脸</span>
+              <button onClick={() => router.push('/files')} className="ml-0.5 p-0.5 rounded-full hover:bg-orange-100" aria-label="退出">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+            <span className="text-[11px] text-gray-400">{data?.pagination.total ?? 0} 张相似</span>
+          </>
+        )}
         {/* Activity type badge */}
         {!isAiMode && isActivityDirectory && currentActivityTypeDisplay && (
           <span className="px-2 py-0.5 bg-orange-50 text-orange-500 text-xs rounded-full">
@@ -306,8 +424,8 @@ function FilesPageContent() {
         )}
       </div>
 
-      {/* Row 2: All Controls - AI 模式下整行隐藏(标签/媒体/分页都不适用 cosine 排序) */}
-      {!isAiMode && (
+      {/* Row 2: All Controls - AI / 人脸 / Person 模式下整行隐藏(都是非常规排序/筛选) */}
+      {!isAiMode && !isFaceMode && !isPersonMode && (
       <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-2">
         {/* Row 2a: Selection + Media Type (Mobile: Full width row) */}
         <div className="flex flex-wrap items-center gap-2">
@@ -447,7 +565,7 @@ function FilesPageContent() {
         {/* Row 2c: Per Page (Mobile: Right aligned) */}
         <div className="flex justify-end md:justify-start md:ml-auto">
           <PerPageSelect
-            value={filters.per_page}
+            value={filters.per_page ?? 24}
             onChange={handlePerPageChange}
           />
         </div>
@@ -472,7 +590,13 @@ function FilesPageContent() {
         <Card variant="bordered" padding="lg">
           <div className="text-center">
             <p className="text-gray-500">
-              {isAiMode ? `没有匹配 "${aiQuery}" 的结果` : zhCN.files.noFiles}
+              {isAiMode
+                ? `没有匹配 "${aiQuery}" 的结果`
+                : isFaceMode
+                ? '没有找到相似的人脸'
+                : isPersonMode
+                ? '该人物暂无照片'
+                : zhCN.files.noFiles}
             </p>
           </div>
         </Card>

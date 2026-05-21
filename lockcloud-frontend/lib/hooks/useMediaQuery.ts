@@ -8,30 +8,31 @@ import { useState, useEffect, useCallback } from 'react';
  * @returns boolean indicating if the media query matches
  */
 export function useMediaQuery(query: string): boolean {
-  // Initialize with false for SSR safety
-  const [matches, setMatches] = useState(false);
+  // 关键:lazy initializer 让 client 端首次 render 就拿到真实值。
+  // 之前写 useState(false) 会让 desktop 被当成 mobile 一帧,
+  // 进而让 ImagePreview 先请求 previewmobile(w=800),
+  // 等 useEffect 翻 desktop 后再请求 previewdesktop(w=1920),
+  // 谁先回来就显示谁——这就是"图片有时糊有时清,左右还带黑边"那个 bug。
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia(query).matches;
+  });
 
   const handleChange = useCallback((event: MediaQueryListEvent | MediaQueryList) => {
     setMatches(event.matches);
   }, []);
 
   useEffect(() => {
-    // Check if window is available (client-side)
-    if (typeof window === 'undefined') {
-      return;
-    }
+    if (typeof window === 'undefined') return;
 
     const mediaQueryList = window.matchMedia(query);
-    
-    // Set initial value
+    // 同步一次,覆盖 query 字符串变化或 SSR→client 切换的边角情况
     setMatches(mediaQueryList.matches);
 
-    // Modern browsers support addEventListener
     if (mediaQueryList.addEventListener) {
       mediaQueryList.addEventListener('change', handleChange);
       return () => mediaQueryList.removeEventListener('change', handleChange);
     } else {
-      // Fallback for older browsers
       mediaQueryList.addListener(handleChange);
       return () => mediaQueryList.removeListener(handleChange);
     }

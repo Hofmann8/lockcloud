@@ -180,12 +180,19 @@ def create_app(config_name=None):
         })
     
     # 注册 CLI 命令
-    from scripts.preheat_videos import register_commands
-    register_commands(app)
+    from scripts.preheat_videos import register_commands as register_preheat_cmds
+    register_preheat_cmds(app)
+    from scripts.cluster_faces import register_commands as register_cluster_cmds
+    register_cluster_cmds(app)
 
     # File insert/delete 之后异步触发 embedding worker
     from services.embed_trigger import init_embed_trigger
     init_embed_trigger(app)
+
+    # File insert/delete 之后异步触发 face worker(检测 + 入库 faces)
+    # 跟 embed 各自一线程,互不阻塞
+    from services.face_trigger import init_face_trigger
+    init_face_trigger(app)
 
     return app
 

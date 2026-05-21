@@ -465,8 +465,8 @@ export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
         
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 lg:p-3 custom-scrollbar-nav">
           <div className="flex items-center justify-between mb-2">
-            <Link 
-              href="/files" 
+            <Link
+              href="/files"
               className="flex items-center gap-2 px-3 py-3 lg:px-2 lg:py-2 rounded-lg text-black hover:text-orange-500 hover:bg-gray-50 font-medium text-sm transition-colors flex-1 min-h-[44px] lg:min-h-0"
               onClick={closeMobileSidebar}
             >
@@ -474,6 +474,17 @@ export function Sidebar({ isOpen, onClose, onOpen }: SidebarProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
               <span>全部文件</span>
+            </Link>
+            <Link
+              href="/persons"
+              className="flex items-center gap-1.5 px-2.5 py-2 lg:px-2 lg:py-1.5 rounded-lg text-gray-600 hover:text-orange-500 hover:bg-gray-50 text-xs font-medium transition-colors"
+              onClick={closeMobileSidebar}
+              title="按人物浏览"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="hidden lg:inline">人物</span>
             </Link>
             <button
               onClick={handleRefresh}

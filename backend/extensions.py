@@ -32,6 +32,15 @@ def _load_sqlite_vec(dbapi_conn, _connection_record):
         sqlite_vec.load(dbapi_conn)
         dbapi_conn.enable_load_extension(False)
 
+        # 提升并发能力:
+        # 1) WAL:读不阻塞写,后台 sweep / cluster 写 DB 时,前端 API 还能读
+        # 2) busy_timeout=10s:遇到写锁先等 10s 再报错,够 sweep 分批 commit
+        #    之间的间隙挤进来。比直接抛"database is locked"友好得多。
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=10000")
+        cur.close()
+
 
 @limiter.request_filter
 def exempt_options_requests():

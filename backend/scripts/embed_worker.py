@@ -145,8 +145,19 @@ def is_bad_vector(vector):
 
 
 def insert_embedding(file_id, vector, model):
+    """写入 image_embeddings,幂等。
+
+    幂等的必要性:image_embeddings 用 file_id 当主键。如果上次跑到一半崩了
+    (vector 已写但 embedding_status 还是 pending),下次重跑会撞 UNIQUE。
+    或者多 worker 并发抢同一行也会撞。直接 DELETE 旧的再 INSERT 新的,
+    保证向量永远是这次跑出来的最新结果。
+    """
     import json
     now = datetime.now(timezone.utc).isoformat()
+    db.session.execute(
+        text("DELETE FROM image_embeddings WHERE file_id = :file_id"),
+        {"file_id": file_id},
+    )
     db.session.execute(
         text(
             "INSERT INTO image_embeddings (file_id, embedding, model_name, created_at)"

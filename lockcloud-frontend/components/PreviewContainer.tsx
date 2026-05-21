@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { File } from '@/types';
 import { FileMetadata } from './FileMetadata';
+import { PeopleInPhoto } from './PeopleInPhoto';
 import { useSignedUrlsBatch } from '@/lib/hooks/useSignedUrl';
 import { StylePreset } from '@/lib/api/files';
 
@@ -15,6 +16,14 @@ interface AdjacentFile {
   content_type?: string;
   public_url?: string;
   thumbhash?: string;
+  activity_name?: string;
+  uploaded_at?: string;
+}
+
+function formatAdjacentTime(file: AdjacentFile): string {
+  if (!file.uploaded_at) return '';
+  const d = new Date(file.uploaded_at);
+  return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('zh-CN', { hour12: false });
 }
 
 interface AdjacentFilesData {
@@ -141,9 +150,9 @@ export function AdjacentFilesSidebar({ adjacentFiles, leftContainerRef }: Adjace
         {sidebarFiles.map((navFile) => {
           const isVideo = navFile.content_type?.startsWith('video/');
           const isImage = navFile.content_type?.startsWith('image/');
-          const isPrev = adjacentFiles?.previous_files?.some(f => f.id === navFile.id) || 
-                         adjacentFiles?.previous?.id === navFile.id;
-          
+          const time = formatAdjacentTime(navFile);
+          const subtitleParts = [navFile.activity_name, time].filter(Boolean);
+
           return (
             <button
               key={navFile.id}
@@ -155,7 +164,7 @@ export function AdjacentFilesSidebar({ adjacentFiles, leftContainerRef }: Adjace
                 {(isVideo || isImage) && sidebarThumbnailUrls[navFile.id] ? (
                   <Image 
                     src={sidebarThumbnailUrls[navFile.id]}
-                    alt={navFile.original_filename || navFile.filename}
+                    alt={navFile.filename || navFile.original_filename || ''}
                     fill
                     className="object-cover"
                     sizes="160px"
@@ -186,25 +195,13 @@ export function AdjacentFilesSidebar({ adjacentFiles, leftContainerRef }: Adjace
               {/* 文件信息 */}
               <div className="flex-1 min-w-0 py-0.5">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
-                  {navFile.original_filename || navFile.filename}
+                  {navFile.filename || navFile.original_filename}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
-                  {isPrev ? (
-                    <>
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                      </svg>
-                      <span>上一个</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>下一个</span>
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </>
-                  )}
-                </p>
+                {subtitleParts.length > 0 && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
+                    {subtitleParts.join(' · ')}
+                  </p>
+                )}
               </div>
             </button>
           );
@@ -293,7 +290,12 @@ export function PreviewContainer({
       <div className="bg-primary-white rounded-lg overflow-hidden w-full">
         {children}
       </div>
-      
+
+      {/* 这张图里有谁(只在图片类型展示) */}
+      {file.content_type?.startsWith('image/') && (
+        <PeopleInPhoto fileId={file.id} />
+      )}
+
       {/* 文件信息区（在媒体下方） */}
       <FileMetadata file={file} onFileUpdate={onFileUpdate} />
     </div>

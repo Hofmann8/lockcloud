@@ -144,12 +144,19 @@ function FilePreviewPageContent({ params }: PageProps) {
     staleTime: 5 * 60 * 1000,
   });
 
-  const handleBack = () => router.back();
+  // 回到进详情页时的列表状态(含搜索/筛选/AI 查询);
+  // 用 router.back() 会被方向键翻图产生的 history 干扰,所以改成读 sessionStorage。
+  const handleBack = () => {
+    const saved = typeof window !== 'undefined'
+      ? sessionStorage.getItem('files-list-return-url')
+      : null;
+    router.push(saved || '/files');
+  };
 
   // Update page title
   useEffect(() => {
     if (file) {
-      document.title = `${file.original_filename || file.filename} - ${zhCN.files.title}`;
+      document.title = `${file.filename || file.original_filename || ''} - ${zhCN.files.title}`;
     }
     return () => { document.title = zhCN.files.title; };
   }, [file]);
@@ -199,9 +206,9 @@ function FilePreviewPageContent({ params }: PageProps) {
     if (isImage) {
       return (
         <Suspense fallback={<PreviewSkeleton thumbhash={file.thumbhash} />}>
-          <ImagePreview 
-            url={file.public_url} 
-            alt={file.original_filename || file.filename} 
+          <ImagePreview
+            url={file.public_url}
+            alt={file.filename || file.original_filename || ''}
             fileId={file.id}
             thumbhash={file.thumbhash}
           />
@@ -214,7 +221,7 @@ function FilePreviewPageContent({ params }: PageProps) {
         <Suspense fallback={<PreviewSkeleton thumbhash={file.thumbhash} />}>
           <VideoPreviewSimple 
             url={file.public_url} 
-            filename={file.original_filename || file.filename} 
+            filename={file.filename || file.original_filename || ''}
             fileId={file.id}
             thumbhash={file.thumbhash}
           />
@@ -250,7 +257,7 @@ function FilePreviewPageContent({ params }: PageProps) {
             activityType={file.activity_type}
             activityTypeDisplay={file.activity_type_display}
             activityDate={file.activity_date}
-            filename={file.filename || file.original_filename}
+            filename={file.filename || file.original_filename || ''}
           />
         ) : !error && (
           <BreadcrumbSkeleton />

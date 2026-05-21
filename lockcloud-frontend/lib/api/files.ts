@@ -114,6 +114,117 @@ export const aiSearch = async (
   return response.data;
 };
 
+// ============================================================
+// 人脸 / Person 相关
+// ============================================================
+
+export interface FaceBox {
+  face_id: number;
+  person_id: number | null;
+  bbox: { x: number; y: number; w: number; h: number };
+  confidence: number;
+}
+
+export const listFacesInFile = async (fileId: number): Promise<{ file_id: number; faces: FaceBox[] }> => {
+  const response = await apiClient.get(`/api/files/${fileId}/faces`);
+  return response.data;
+};
+
+export interface PersonInFile {
+  id: number;
+  name: string | null;
+  face_count: number;       // 该 person 全库出现次数
+  thumb_url: string | null; // 公开桶 ?rect= cover thumb(老路径,fallback)
+  best_face_in_file?: {
+    face_id: number;
+    bbox: { x: number; y: number; w: number; h: number };  // raw 坐标系
+  };
+}
+
+export interface FileDims {
+  raw_w: number;
+  raw_h: number;
+  orientation: number;  // EXIF 1..8
+}
+
+export const listPeopleInFile = async (fileId: number): Promise<{
+  file_id: number;
+  people: PersonInFile[];
+  unidentified_count: number;
+  file_dims: FileDims | null;
+}> => {
+  const response = await apiClient.get(`/api/files/${fileId}/people`);
+  return response.data;
+};
+
+export interface Person {
+  id: number;
+  name: string | null;
+  face_count: number;
+  cover_face_id: number | null;
+  cover_pinned: boolean;
+  thumb_url: string | null;
+}
+
+export const listPersons = async (params?: { limit?: number; min_count?: number }): Promise<{ persons: Person[]; total: number }> => {
+  const response = await apiClient.get('/api/files/persons', { params });
+  return response.data;
+};
+
+export interface PersonFilesResponse {
+  person: { id: number; name: string | null; face_count: number };
+  files: File[];
+  pagination: { total: number; page: number; per_page: number; pages: number; has_next: boolean; has_prev: boolean };
+}
+
+export const getPersonFiles = async (personId: number, page = 1, per_page = 24): Promise<PersonFilesResponse> => {
+  const response = await apiClient.get(`/api/files/persons/${personId}`, { params: { page, per_page } });
+  return response.data;
+};
+
+export const renamePerson = async (personId: number, name: string): Promise<{ id: number; name: string | null }> => {
+  const response = await apiClient.patch(`/api/files/persons/${personId}`, { name });
+  return response.data;
+};
+
+export const setPersonCover = async (
+  personId: number,
+  fileId: number
+): Promise<{ id: number; cover_face_id: number; cover_pinned: boolean }> => {
+  const response = await apiClient.put(`/api/files/persons/${personId}/cover`, { file_id: fileId });
+  return response.data;
+};
+
+export interface PersonNameConflict {
+  id: number;
+  name: string;
+  face_count: number;
+  thumb_url: string | null;
+}
+
+export const mergePerson = async (
+  sourceId: number,
+  targetId: number
+): Promise<{ merged_into: number; moved_faces: number; deleted_person_id: number }> => {
+  const response = await apiClient.post(`/api/files/persons/${sourceId}/merge`, {
+    target_id: targetId,
+  });
+  return response.data;
+};
+
+export interface FaceSearchResult {
+  rank: number;
+  face_id: number;
+  similarity: number;
+  person_id: number | null;
+  file: File;
+}
+
+export const faceSearch = async (face_id: number, limit = 50): Promise<{ query_face_id: number; results: FaceSearchResult[]; ms: number }> => {
+  const response = await apiClient.post('/api/files/face-search', { face_id, limit });
+  return response.data;
+};
+
 /**
  * Get directory structure based on tag presets
  */

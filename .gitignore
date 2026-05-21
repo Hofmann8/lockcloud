@@ -23,6 +23,13 @@ backend/instance/*.db
 backend/instance/*.sqlite
 backend/instance/*.sqlite3
 
+# InsightFace / 其它 ML 模型权重(几百 MB 不进库)
+# Docker 镜像构建时会 COPY 这一份进容器,本地保留即可
+backend/models/
+
+# FC 镜像 build context 里的模型副本(prepare.ps1 复制进来),同样 ~326MB 不进库
+backend/fc/face/insightface/
+
 # ==========================================
 # Web Frontend - Next.js
 # ==========================================

@@ -14,6 +14,7 @@ from files.validators import (
     validate_file_extension
 )
 from services.s3_service import s3_service
+from services.s3_public_service import S3PublicService
 from logs.models import FileLog, OperationType
 import threading
 
@@ -3619,4 +3620,776 @@ def ai_search():
         'query': q,
         'query_tokens': emb.input_tokens,
         'ms': ms_search,
+    })
+
+
+# ============================================================
+# 人脸 / Person 相关端点
+#
+# 表关系:files 1-N faces N-1 persons
+# faces.person_id = 0  → 未聚类(哨兵值,vec0 regular 列不能 NULL)
+# persons.cover_face_id → 选中的代表脸,从中可拿 file_id + bbox 拼公开桶 thumb URL
+# 完整背景见 [[decision_public_mirror_bucket]] + [[decision_embedding_arch]]
+# ============================================================
+
+
+RECT_EXIF_FILE_IDS = {1527, 2551}
+
+
+def _raw_bbox_to_exif_bbox(x, y, w, h, raw_w, raw_h, orientation):
+    """raw bbox -> EXIF-applied bbox for confirmed Bitiful rect outliers."""
+    if not raw_w or not raw_h:
+        return (x, y, w, h)
+    o = int(orientation or 1)
+    raw_w, raw_h = int(raw_w), int(raw_h)
+    if o == 1:
+        return (x, y, w, h)
+    if o == 2:
+        return (raw_w - x - w, y, w, h)
+    if o == 3:
+        return (raw_w - x - w, raw_h - y - h, w, h)
+    if o == 4:
+        return (x, raw_h - y - h, w, h)
+    if o == 5:
+        return (y, x, h, w)
+    if o == 6:
+        return (raw_h - y - h, x, h, w)
+    if o == 7:
+        return (raw_h - y - h, raw_w - x - w, h, w)
+    if o == 8:
+        return (y, raw_w - x - w, h, w)
+    return (x, y, w, h)
+
+
+def _person_thumb_url(file_row, bbox, width=200):
+    """从 (file row tuple, bbox tuple) 拼公开桶 ?rect=...&w=... thumb URL。
+    file 必须已 mirror(public_mirror_at 非空),否则返回 None。
+    默认 bbox 是 raw 坐标系,?rect= 直接喂。
+
+    少数已确认的公开桶对象(file_id in RECT_EXIF_FILE_IDS)在 Bitiful
+    动态裁剪里表现为 EXIF-applied 坐标系,只对这些文件做 raw→EXIF。
+    """
+    if len(file_row) >= 6:
+        file_id, s3_key, public_mirror_at, raw_w, raw_h, orientation = file_row[:6]
+    else:
+        file_id = None
+        s3_key, public_mirror_at = file_row[0], file_row[1]
+        raw_w = file_row[2] if len(file_row) > 2 else None
+        raw_h = file_row[3] if len(file_row) > 3 else None
+        orientation = file_row[4] if len(file_row) > 4 else 1
+    if not public_mirror_at:
+        return None
+    endpoint = current_app.config.get('S3_PUBLIC_ENDPOINT', '')
+    x, y, w, h = (int(v) for v in bbox)
+    if file_id is not None and int(file_id) in RECT_EXIF_FILE_IDS:
+        x, y, w, h = _raw_bbox_to_exif_bbox(x, y, w, h, raw_w, raw_h, orientation)
+    cover_key = S3PublicService.cover_key(s3_key)
+    return f"{endpoint}/{cover_key}?rect={x},{y},{w},{h}&w={width}"
+
+
+@files_bp.route('/<int:file_id>/faces', methods=['GET'])
+@jwt_required()
+def list_faces_in_file(file_id):
+    """GET /api/files/<id>/faces → 该文件检测到的脸列表,带 bbox 和 person_id
+
+    主要给将来"在图上画 bbox 框"留口子,目前 UI 用的是 /persons 那个端点。
+    """
+    from sqlalchemy import text as _sql
+
+    rows = db.session.execute(
+        _sql(
+            "SELECT face_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h, confidence_bp "
+            "FROM faces WHERE file_id = :fid ORDER BY face_id"
+        ),
+        {"fid": file_id},
+    ).all()
+
+    faces = [{
+        'face_id': int(r[0]),
+        'person_id': int(r[1]) if r[1] else None,  # 0 = 未聚类,前端按 null 处理
+        'bbox': {'x': int(r[2]), 'y': int(r[3]), 'w': int(r[4]), 'h': int(r[5])},
+        'confidence': float(r[6]) / 10000.0,
+    } for r in rows]
+
+    return jsonify({'file_id': file_id, 'faces': faces})
+
+
+@files_bp.route('/<int:file_id>/people', methods=['GET'])
+@jwt_required()
+def list_people_in_file(file_id):
+    """GET /api/files/<id>/people → 该文件里出现的 distinct person 列表 + 各自代表头像
+
+    UI 用:文件详情页旁边显示"这张图里有谁",每个 person 给个圆头像缩略图,
+    点击 → /files?person=<id>。
+
+    实现:
+      faces (this file) → persons → cover_face → cover face's file & bbox → public thumb URL
+      未聚类的脸(person_id=0)单独归一组,只显示一条"未识别人脸"提示
+    """
+    from sqlalchemy import text as _sql
+
+    # 拿 file 的 raw 尺寸 + EXIF orientation,前端用来在已加载大图上做 CSS 裁切
+    # 见 [[gotcha_bitiful_rect_raw_coord]]:bbox 存的是 raw 系,要反变换到 EXIF 系
+    file_dims_row = db.session.execute(
+        _sql("SELECT raw_w, raw_h, orientation FROM files WHERE id = :id"),
+        {"id": file_id},
+    ).first()
+    file_dims = None
+    if file_dims_row and file_dims_row[0] and file_dims_row[1]:
+        file_dims = {
+            'raw_w': int(file_dims_row[0]),
+            'raw_h': int(file_dims_row[1]),
+            'orientation': int(file_dims_row[2] or 1),
+        }
+
+    # 取该文件里所有脸(bbox + 质量),后面在 Python 侧按 person_id 挑最佳
+    face_rows = db.session.execute(
+        _sql(
+            "SELECT face_id, person_id, bbox_x, bbox_y, bbox_w, bbox_h, confidence_bp "
+            "FROM faces WHERE file_id = :fid"
+        ),
+        {"fid": file_id},
+    ).all()
+    if not face_rows:
+        return jsonify({
+            'file_id': file_id, 'people': [], 'unidentified_count': 0,
+            'file_dims': file_dims,
+        })
+
+    # 按 person_id 分组,挑 area * confidence_bp 最大那张做 best_face
+    best_by_pid = {}            # pid -> (face_id, bbox_x, bbox_y, bbox_w, bbox_h, conf_bp)
+    unidentified = 0
+    for r in face_rows:
+        face_id, pid, x, y, w, h, conf = (
+            int(r[0]), int(r[1] or 0), int(r[2]), int(r[3]),
+            int(r[4]), int(r[5]), int(r[6]),
+        )
+        if pid <= 0:
+            unidentified += 1
+            continue
+        score = w * h * conf
+        cur = best_by_pid.get(pid)
+        if cur is None or score > cur[6]:
+            best_by_pid[pid] = (face_id, x, y, w, h, conf, score)
+
+    if not best_by_pid:
+        return jsonify({
+            'file_id': file_id, 'people': [], 'unidentified_count': unidentified,
+            'file_dims': file_dims,
+        })
+
+    # JOIN persons + real_people 拿 name + 全库 face_count
+    from sqlalchemy import bindparam
+    stmt = _sql(
+        "SELECT p.id, rp.name, p.face_count, "
+        "       fi.id, fi.s3_key, fi.public_mirror_at, "
+        "       fi.raw_w, fi.raw_h, fi.orientation, "
+        "       f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h "
+        "FROM persons p "
+        "LEFT JOIN real_people rp ON p.real_person_id = rp.id "
+        "LEFT JOIN faces f ON p.cover_face_id = f.face_id "
+        "LEFT JOIN files fi ON f.file_id = fi.id "
+        "WHERE p.id IN :pids "
+        "ORDER BY p.face_count DESC"
+    ).bindparams(bindparam("pids", expanding=True))
+    person_rows = db.session.execute(
+        stmt, {"pids": list(best_by_pid.keys())}
+    ).all()
+
+    people = []
+    for pr in person_rows:
+        pid = int(pr[0])
+        best = best_by_pid[pid]
+        face_id, bx, by, bw, bh = best[0], best[1], best[2], best[3], best[4]
+        # cover 的 thumb_url(走公开桶 ?rect=)留下,前端如果拿不到 file_dims 走 fallback
+        cover_bbox = (pr[9], pr[10], pr[11], pr[12]) if pr[9] is not None else None
+        thumb_url = (
+            _person_thumb_url((pr[3], pr[4], pr[5], pr[6], pr[7], pr[8]), cover_bbox)
+            if cover_bbox else None
+        )
+        people.append({
+            'id': pid,
+            'name': pr[1],
+            'face_count': int(pr[2]),
+            'thumb_url': thumb_url,           # fallback,新前端有 file_dims 时优先 CSS 裁切
+            'best_face_in_file': {
+                'face_id': face_id,
+                # raw 坐标系 bbox。前端 + file_dims 自己做 raw→exif 变换
+                'bbox': {'x': bx, 'y': by, 'w': bw, 'h': bh},
+            },
+        })
+
+    return jsonify({
+        'file_id': file_id,
+        'people': people,
+        'unidentified_count': unidentified,
+        'file_dims': file_dims,                # null = 旧文件没补,前端走 thumb_url fallback
+    })
+
+
+@files_bp.route('/persons', methods=['GET'])
+@jwt_required()
+def list_persons():
+    """GET /api/files/persons?limit= → 所有 cluster + cover thumb URL + (link 的)真人 name/pin
+
+    现在 persons 表只存 cluster 状态;name / cover_pinned 来自 real_people。
+    LEFT JOIN real_people: 没 link 的 cluster name=NULL pinned=0(前端按未命名展示)。
+
+    多个 cluster 可能 link 同一个 real_people(DBSCAN 把同一人拆了),响应保持 1 row per cluster。
+    """
+    from sqlalchemy import text as _sql
+
+    limit = int(request.args.get('limit', 500))
+    limit = max(1, min(limit, 1000))
+
+    rows = db.session.execute(
+        _sql(
+            "SELECT p.id, rp.name, p.face_count, p.cover_face_id, "
+            "       COALESCE(rp.cover_pinned, 0) AS pinned, "
+            "       fi.id, fi.s3_key, fi.public_mirror_at, "
+            "       fi.raw_w, fi.raw_h, fi.orientation, "
+            "       f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, "
+            "       p.real_person_id "
+            "FROM persons p "
+            "LEFT JOIN real_people rp ON p.real_person_id = rp.id "
+            "LEFT JOIN faces f ON p.cover_face_id = f.face_id "
+            "LEFT JOIN files fi ON f.file_id = fi.id "
+            "WHERE p.face_count >= 1 "
+            "ORDER BY p.face_count DESC "
+            "LIMIT :lim"
+        ),
+        {"lim": limit},
+    ).all()
+
+    persons = []
+    for r in rows:
+        bbox = (r[11], r[12], r[13], r[14]) if r[11] is not None else None
+        thumb_url = (
+            _person_thumb_url((r[5], r[6], r[7], r[8], r[9], r[10]), bbox)
+            if bbox else None
+        )
+        persons.append({
+            'id': int(r[0]),
+            'name': r[1],
+            'face_count': int(r[2]),
+            'cover_face_id': int(r[3]) if r[3] else None,
+            'cover_pinned': bool(r[4]),
+            'thumb_url': thumb_url,
+            'real_person_id': int(r[15]) if r[15] else None,
+        })
+
+    return jsonify({'persons': persons, 'total': len(persons)})
+
+
+@files_bp.route('/persons/<int:person_id>', methods=['GET'])
+@jwt_required()
+def get_person_files(person_id):
+    """GET /api/files/persons/<id> → 该 person 出现在的所有文件
+
+    分页同 /files 主接口;face_count 在 persons 表里已存,这里只返文件。
+    """
+    from sqlalchemy import text as _sql
+
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 24))
+    per_page = max(1, min(per_page, 200))
+
+    # 取 cluster 元信息(name 来自 real_people)
+    p_row = db.session.execute(
+        _sql(
+            "SELECT p.id, rp.name, p.face_count "
+            "FROM persons p LEFT JOIN real_people rp ON p.real_person_id = rp.id "
+            "WHERE p.id = :pid"
+        ),
+        {"pid": person_id},
+    ).first()
+    if not p_row:
+        return jsonify({'error': {'code': 'NOT_FOUND', 'message': 'person 不存在'}}), 404
+
+    # 该 person 出现在哪些 file(distinct file_id,按上传时间倒序)
+    # faces 是 vec0 虚表,JOIN files 走 file_id 列(regular column 可索引)
+    file_ids_rows = db.session.execute(
+        _sql(
+            "SELECT DISTINCT f.file_id FROM faces f WHERE f.person_id = :pid"
+        ),
+        {"pid": person_id},
+    ).all()
+    file_ids = [int(r[0]) for r in file_ids_rows]
+    if not file_ids:
+        return jsonify({
+            'person': {'id': int(p_row[0]), 'name': p_row[1], 'face_count': int(p_row[2])},
+            'files': [], 'pagination': {'total': 0, 'page': page, 'per_page': per_page,
+                                         'pages': 0, 'has_next': False, 'has_prev': False},
+        })
+
+    total = len(file_ids)
+    q = File.query.filter(File.id.in_(file_ids)).order_by(File.uploaded_at.desc())
+    paged = q.paginate(page=page, per_page=per_page, error_out=False)
+
+    return jsonify({
+        'person': {'id': int(p_row[0]), 'name': p_row[1], 'face_count': int(p_row[2])},
+        'files': [f.to_dict(include_uploader=True) for f in paged.items],
+        'pagination': {
+            'total': total, 'page': page, 'per_page': per_page,
+            'pages': paged.pages,
+            'has_next': paged.has_next, 'has_prev': paged.has_prev,
+        },
+    })
+
+
+@files_bp.route('/persons/<int:person_id>', methods=['PATCH'])
+@jwt_required()
+def rename_person(person_id):
+    """PATCH /api/files/persons/<id> { name } → 给 cluster 起名字(实际写 real_people)
+
+    身份现在跟 cluster 解耦:
+      - cluster 已 link 了 real_people → 直接 UPDATE real_people.name
+      - cluster 没 link → 拿它 cover face 的 (file_id, bbox) 当 anchor 新建一行
+        real_people, 然后 UPDATE persons.real_person_id 指过去
+      - 撞同名 real_people → 409 NAME_CONFLICT,带 existing real_people 信息,
+        前端弹合并对话框(走 /persons/<id>/merge)
+    """
+    from sqlalchemy import text as _sql
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        name = None
+
+    # 取该 cluster 当前 link 的 real_person_id + cover face 的 anchor 信息
+    info = db.session.execute(
+        _sql(
+            "SELECT p.real_person_id, "
+            "       f.file_id, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h "
+            "FROM persons p "
+            "LEFT JOIN faces f ON p.cover_face_id = f.face_id "
+            "WHERE p.id = :pid"
+        ),
+        {"pid": person_id},
+    ).first()
+    if not info:
+        return jsonify({'error': {'code': 'NOT_FOUND', 'message': 'person 不存在'}}), 404
+    cur_real_pid = int(info[0]) if info[0] else None
+    cover_file_id = int(info[1]) if info[1] else None
+    cover_bbox = (info[2], info[3], info[4], info[5]) if info[1] else None
+
+    # 同名冲突(找 real_people 表)
+    if name:
+        conflict = db.session.execute(
+            _sql(
+                "SELECT rp.id, rp.name, "
+                "       COALESCE((SELECT SUM(p.face_count) FROM persons p "
+                "                 WHERE p.real_person_id = rp.id), 0) AS face_count, "
+                "       rp.anchor_file_id, rp.anchor_bbox_x, rp.anchor_bbox_y, "
+                "       rp.anchor_bbox_w, rp.anchor_bbox_h "
+                "FROM real_people rp WHERE rp.name = :n AND rp.id != :exclude LIMIT 1"
+            ),
+            {"n": name, "exclude": cur_real_pid or 0},
+        ).first()
+        if conflict:
+            # 拼一个 thumb url 给前端展示已存在那位
+            existing_file = db.session.execute(
+                _sql(
+                    "SELECT id, s3_key, public_mirror_at, raw_w, raw_h, orientation "
+                    "FROM files WHERE id = :id"
+                ),
+                {"id": int(conflict[3])},
+            ).first() if conflict[3] else None
+            ex_bbox = (conflict[4], conflict[5], conflict[6], conflict[7]) if conflict[4] else None
+            thumb_url = _person_thumb_url(
+                (existing_file[0], existing_file[1], existing_file[2],
+                 existing_file[3], existing_file[4], existing_file[5]), ex_bbox
+            ) if existing_file and ex_bbox else None
+            return jsonify({
+                'error': {
+                    'code': 'NAME_CONFLICT',
+                    'message': f'已存在同名人物「{name}」',
+                    'existing': {
+                        'id': int(conflict[0]),
+                        'name': conflict[1],
+                        'face_count': int(conflict[2] or 0),
+                        'thumb_url': thumb_url,
+                    },
+                },
+            }), 409
+
+    now = datetime.utcnow().isoformat()
+    if cur_real_pid:
+        # cluster 已经 link 了 → 直接改 name
+        db.session.execute(
+            _sql("UPDATE real_people SET name = :n, updated_at = :ts WHERE id = :rid"),
+            {"n": name, "ts": now, "rid": cur_real_pid},
+        )
+    else:
+        if not cover_bbox:
+            return jsonify({'error': {
+                'code': 'NO_ANCHOR',
+                'message': 'cluster 没 cover face,起不了 anchor,无法命名',
+            }}), 400
+        # 新建 real_people + link
+        res = db.session.execute(
+            _sql(
+                "INSERT INTO real_people "
+                "  (name, cover_pinned, anchor_file_id, "
+                "   anchor_bbox_x, anchor_bbox_y, anchor_bbox_w, anchor_bbox_h, "
+                "   created_at, updated_at) "
+                "VALUES (:n, 0, :fid, :bx, :by, :bw, :bh, :ts, :ts)"
+            ),
+            {"n": name, "fid": cover_file_id,
+             "bx": cover_bbox[0], "by": cover_bbox[1],
+             "bw": cover_bbox[2], "bh": cover_bbox[3], "ts": now},
+        )
+        new_real_id = int(res.lastrowid)
+        db.session.execute(
+            _sql("UPDATE persons SET real_person_id = :rid WHERE id = :pid"),
+            {"rid": new_real_id, "pid": person_id},
+        )
+    db.session.commit()
+    return jsonify({'id': person_id, 'name': name})
+
+
+@files_bp.route('/persons/<int:person_id>/merge', methods=['POST'])
+@jwt_required()
+def merge_person(person_id):
+    """POST /api/files/persons/<cluster_id>/merge { target_id } → 把 cluster 改链到目标真人
+
+    新架构下 merge 只在身份层做,不动 faces 表:
+      - target_id 是 real_people.id(rename_person 返回 NAME_CONFLICT.existing.id 时给的)
+      - 把 cluster.real_person_id 改成 target_id
+      - cluster 原来 link 的 real_people 若变成孤儿(没人再指它)→ DELETE
+      - faces / persons 行本身保留,因为不同 cluster 可以 link 到同一个 real_people
+        (DBSCAN 把一个人拆成多堆这种事很常见)
+
+    边界:
+      - cluster 不存在 → 404
+      - target real_people 不存在 → 404
+      - cluster 已经 link 到 target → 200 idempotent
+    """
+    from sqlalchemy import text as _sql
+
+    data = request.get_json(silent=True) or {}
+    target_id = data.get('target_id')
+    if not target_id:
+        return jsonify({'error': {'code': 'BAD_REQUEST', 'message': 'target_id 必填'}}), 400
+    target_id = int(target_id)
+
+    src = db.session.execute(
+        _sql("SELECT id, real_person_id FROM persons WHERE id = :id"),
+        {"id": person_id},
+    ).first()
+    if not src:
+        return jsonify({'error': {'code': 'NOT_FOUND', 'message': 'cluster 不存在'}}), 404
+
+    target = db.session.execute(
+        _sql("SELECT id, name FROM real_people WHERE id = :id"),
+        {"id": target_id},
+    ).first()
+    if not target:
+        return jsonify({'error': {
+            'code': 'NOT_FOUND', 'message': 'target real_person 不存在',
+        }}), 404
+
+    old_real_id = int(src[1]) if src[1] else None
+    if old_real_id == target_id:
+        return jsonify({
+            'merged_into_real_id': target_id,
+            'source_cluster_id': person_id,
+            'orphan_real_id_deleted': None,
+            'noop': True,
+        })
+
+    # 改 cluster → target real_people
+    db.session.execute(
+        _sql("UPDATE persons SET real_person_id = :rid WHERE id = :pid"),
+        {"rid": target_id, "pid": person_id},
+    )
+
+    # 旧 real_people 没人指了就删,身份就清干净了
+    orphan_deleted = None
+    if old_real_id:
+        still_used = db.session.execute(
+            _sql("SELECT 1 FROM persons WHERE real_person_id = :rid LIMIT 1"),
+            {"rid": old_real_id},
+        ).first()
+        if not still_used:
+            db.session.execute(
+                _sql("DELETE FROM real_people WHERE id = :rid"),
+                {"rid": old_real_id},
+            )
+            orphan_deleted = old_real_id
+
+    db.session.commit()
+
+    return jsonify({
+        'merged_into_real_id': target_id,
+        'source_cluster_id': person_id,
+        'orphan_real_id_deleted': orphan_deleted,
+    })
+
+
+@files_bp.route('/persons/<int:person_id>/cover', methods=['PUT'])
+@jwt_required()
+def set_person_cover(person_id):
+    """PUT /api/files/persons/<id>/cover { file_id } → 指定该图为 person 代表头像
+
+    pin 现在写在 real_people 上(身份层),而不是 persons(cluster 层):
+      - 选 file_id 里 person_id=:pid 的最佳脸做 anchor (bbox)
+      - cluster 已 link real_people → UPDATE real_people 的 cover_pinned + anchor
+      - 没 link → 新建一行匿名 real_people (name=NULL, cover_pinned=1, anchor=新脸),
+        再 UPDATE persons.real_person_id 指过去 —— reset/recluster 后靠 anchor IoU 反查
+      - 同时 UPDATE persons.cover_face_id = 新 face_id,这样列表缩略图立即跟上
+        (cluster 重跑后 cover_face_id 失效会被 reconcile 用 anchor 找回新值)
+
+    同步副作用(端点返回时全部完成,前端 onSuccess 即可信赖最新状态):
+      1) 新 cover file 没 mirror → 先 server-side copy 到 covers/<key>(若失败 → 500)
+      2) UPDATE real_people + persons + 视情况 files.public_mirror_at,单 commit
+      3) 旧 cover file 不再被引用 → unmirror + 清 public_mirror_at(失败仅记日志,
+         cron mirror_cover_files.py prune 会兜底)
+    """
+    from sqlalchemy import text as _sql
+
+    data = request.get_json(silent=True) or {}
+    file_id = data.get('file_id')
+    if not file_id:
+        return jsonify({'error': {'code': 'BAD_REQUEST', 'message': 'file_id 必填'}}), 400
+    file_id = int(file_id)
+
+    # ---- 选脸 + 拿 bbox ----
+    best = db.session.execute(
+        _sql(
+            "SELECT face_id, bbox_x, bbox_y, bbox_w, bbox_h FROM faces "
+            "WHERE file_id = :fid AND person_id = :pid "
+            "ORDER BY (bbox_w * bbox_h * confidence_bp) DESC LIMIT 1"
+        ),
+        {"fid": file_id, "pid": person_id},
+    ).first()
+    if not best:
+        return jsonify({'error': {
+            'code': 'NO_MATCHING_FACE',
+            'message': '该文件里没有这个 person 的脸',
+        }}), 400
+    new_face_id = int(best[0])
+    new_bbox = (int(best[1]), int(best[2]), int(best[3]), int(best[4]))
+
+    # ---- 取 cluster 当前 real_person_id + 旧 cover file_id ----
+    old_row = db.session.execute(
+        _sql(
+            "SELECT p.real_person_id, p.cover_face_id, f.file_id "
+            "FROM persons p LEFT JOIN faces f ON p.cover_face_id = f.face_id "
+            "WHERE p.id = :pid"
+        ),
+        {"pid": person_id},
+    ).first()
+    if not old_row:
+        return jsonify({'error': {'code': 'NOT_FOUND', 'message': 'person 不存在'}}), 404
+    cur_real_pid = int(old_row[0]) if old_row[0] else None
+    old_file_id = int(old_row[2]) if old_row[2] else None
+
+    # ---- 新 cover file 的当前 mirror 状态 ----
+    new_file_row = db.session.execute(
+        _sql("SELECT s3_key, public_mirror_at FROM files WHERE id = :id"),
+        {"id": file_id},
+    ).first()
+    if not new_file_row:
+        return jsonify({'error': {'code': 'NOT_FOUND', 'message': 'file 不存在'}}), 404
+    new_s3_key = new_file_row[0]
+    new_already_mirrored = bool(new_file_row[1])
+
+    s3pub = S3PublicService()
+    now = datetime.utcnow().isoformat()
+
+    # ---- 步骤 1:mirror 新 cover(若需要) ----
+    if not new_already_mirrored:
+        try:
+            s3pub.mirror_cover(new_s3_key)
+        except Exception as e:
+            current_app.logger.error(
+                "set_person_cover: mirror new file=%d failed: %s", file_id, e
+            )
+            return jsonify({'error': {
+                'code': 'MIRROR_FAILED',
+                'message': f'公开桶镜像失败: {e}',
+            }}), 500
+
+    # ---- 步骤 2:DB 单 commit(real_people + persons + files 一起) ----
+    try:
+        if cur_real_pid:
+            db.session.execute(
+                _sql(
+                    "UPDATE real_people SET cover_pinned = 1, "
+                    "  anchor_file_id = :fid, anchor_bbox_x = :bx, anchor_bbox_y = :by, "
+                    "  anchor_bbox_w = :bw, anchor_bbox_h = :bh, updated_at = :ts "
+                    "WHERE id = :rid"
+                ),
+                {"fid": file_id,
+                 "bx": new_bbox[0], "by": new_bbox[1],
+                 "bw": new_bbox[2], "bh": new_bbox[3],
+                 "ts": now, "rid": cur_real_pid},
+            )
+        else:
+            res = db.session.execute(
+                _sql(
+                    "INSERT INTO real_people "
+                    "  (name, cover_pinned, anchor_file_id, "
+                    "   anchor_bbox_x, anchor_bbox_y, anchor_bbox_w, anchor_bbox_h, "
+                    "   created_at, updated_at) "
+                    "VALUES (NULL, 1, :fid, :bx, :by, :bw, :bh, :ts, :ts)"
+                ),
+                {"fid": file_id,
+                 "bx": new_bbox[0], "by": new_bbox[1],
+                 "bw": new_bbox[2], "bh": new_bbox[3],
+                 "ts": now},
+            )
+            cur_real_pid = int(res.lastrowid)
+            db.session.execute(
+                _sql("UPDATE persons SET real_person_id = :rid WHERE id = :pid"),
+                {"rid": cur_real_pid, "pid": person_id},
+            )
+        # cluster 层的 cover_face_id 也同步,这样列表缩略图立即跟上
+        db.session.execute(
+            _sql(
+                "UPDATE persons SET cover_face_id = :fc, updated_at = :ts "
+                "WHERE id = :pid"
+            ),
+            {"fc": new_face_id, "ts": now, "pid": person_id},
+        )
+        if not new_already_mirrored:
+            db.session.execute(
+                _sql("UPDATE files SET public_mirror_at = :ts WHERE id = :id"),
+                {"ts": now, "id": file_id},
+            )
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(
+            "set_person_cover: db commit failed: %s (新 mirror 落桶但 DB 没引用,cron 会清)", e
+        )
+        return jsonify({'error': {
+            'code': 'DB_FAILED', 'message': f'DB 写入失败: {e}',
+        }}), 500
+
+    # ---- 步骤 3:旧 cover file 不再被引用就 unmirror(best-effort) ----
+    if old_file_id and old_file_id != file_id:
+        still_used = db.session.execute(
+            _sql(
+                "SELECT 1 FROM persons p JOIN faces f ON p.cover_face_id = f.face_id "
+                "WHERE f.file_id = :fid LIMIT 1"
+            ),
+            {"fid": old_file_id},
+        ).first()
+        if not still_used:
+            old_file_row = db.session.execute(
+                _sql("SELECT s3_key FROM files WHERE id = :id"),
+                {"id": old_file_id},
+            ).first()
+            if old_file_row:
+                try:
+                    s3pub.unmirror_cover(old_file_row[0])
+                    db.session.execute(
+                        _sql("UPDATE files SET public_mirror_at = NULL WHERE id = :id"),
+                        {"id": old_file_id},
+                    )
+                    db.session.commit()
+                except Exception as e:
+                    current_app.logger.warning(
+                        "set_person_cover: unmirror old file=%d failed: %s (cron 兜底)",
+                        old_file_id, e,
+                    )
+
+    return jsonify({
+        'id': person_id,
+        'cover_face_id': new_face_id,
+        'cover_pinned': True,
+        'mirrored_new': not new_already_mirrored,
+        'unmirrored_old': bool(old_file_id and old_file_id != file_id),
+    })
+
+
+@files_bp.route('/face-search', methods=['POST'])
+@jwt_required()
+def face_search():
+    """POST /api/files/face-search { face_id, limit? } → 跟该脸最相似的脸列表,按相似度排序
+
+    用于"找同一个人":前端点击详情页人脸框,以 face_id 反查所有相似脸所在的文件。
+    走 sqlite-vec MATCH(余弦 KNN)。
+    """
+    import time as _time
+    from sqlalchemy import text as _sql
+
+    data = request.get_json(silent=True) or {}
+    face_id = data.get('face_id')
+    limit = int(data.get('limit') or 50)
+    limit = max(1, min(limit, 200))
+
+    if not face_id:
+        return jsonify({'error': {'code': 'BAD_REQUEST', 'message': 'face_id 必填'}}), 400
+
+    t0 = _time.monotonic()
+
+    # 取 query 脸的 embedding
+    row = db.session.execute(
+        _sql("SELECT embedding FROM faces WHERE face_id = :fid"),
+        {"fid": int(face_id)},
+    ).first()
+    if not row:
+        return jsonify({'error': {'code': 'NOT_FOUND', 'message': 'face_id 不存在'}}), 404
+    query_blob = row[0]
+
+    # KNN over faces vec0
+    try:
+        rows = db.session.execute(
+            _sql(
+                "SELECT face_id, file_id, person_id, distance "
+                "FROM faces WHERE embedding MATCH :vec AND k = :k "
+                "ORDER BY distance"
+            ),
+            {"vec": query_blob, "k": limit + 1},  # +1 因为查询脸自己一定在 top-1
+        ).all()
+    except Exception as e:
+        current_app.logger.error(f'face-search vec0 query failed: {e}')
+        return jsonify({'error': {'code': 'VEC_QUERY_FAILED', 'message': f'向量检索失败: {e}'}}), 500
+
+    ms = int((_time.monotonic() - t0) * 1000)
+
+    # 排除自己,按 file_id 去重(每个文件保留最相似那张脸)
+    seen_files = set()
+    matches = []
+    for r in rows:
+        fid, file_id, person_id, dist = int(r[0]), int(r[1]), int(r[2]), float(r[3])
+        if fid == int(face_id):
+            continue
+        if file_id in seen_files:
+            continue
+        seen_files.add(file_id)
+        matches.append({
+            'face_id': fid,
+            'file_id': file_id,
+            'person_id': person_id if person_id else None,
+            'distance': dist,
+            'similarity': 1.0 - dist,  # 余弦相似度
+        })
+        if len(matches) >= limit:
+            break
+
+    # JOIN files
+    file_ids = [m['file_id'] for m in matches]
+    files = File.query.filter(File.id.in_(file_ids)).all()
+    by_id = {f.id: f for f in files}
+    results = []
+    for rank, m in enumerate(matches, 1):
+        f = by_id.get(m['file_id'])
+        if f is None:
+            continue
+        results.append({
+            'rank': rank,
+            'face_id': m['face_id'],
+            'similarity': m['similarity'],
+            'person_id': m['person_id'],
+            'file': f.to_dict(include_uploader=True),
+        })
+
+    return jsonify({
+        'query_face_id': int(face_id),
+        'results': results,
+        'ms': ms,
     })

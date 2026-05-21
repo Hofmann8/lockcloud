@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // standalone: 把所需 node_modules 一并 tree-shake 出来,deploy.py 直接打包
+  // .next/standalone + .next/static + public,服务器解压 `node server.js` 就能跑
+  output: 'standalone',
   images: {
     remotePatterns: [
       {

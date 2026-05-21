@@ -15,9 +15,11 @@ timeout = 360
 graceful_timeout = 30
 keepalive = 5
 
-# 日志配置
-accesslog = os.path.join(os.path.dirname(__file__), "logs", "gunicorn_access.log")
-errorlog = os.path.join(os.path.dirname(__file__), "logs", "gunicorn_error.log")
+# 日志配置(目录不存在就建,部署时 logs/ 不进包)
+_LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(_LOG_DIR, exist_ok=True)
+accesslog = os.path.join(_LOG_DIR, "gunicorn_access.log")
+errorlog = os.path.join(_LOG_DIR, "gunicorn_error.log")
 loglevel = "debug"  # 改为 debug 级别以捕获更多信息
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 

@@ -77,7 +77,7 @@ export function AiSearchBox() {
       role="search"
     >
       <SparkleIcon
-        className={`absolute left-3.5 w-4 h-4 shrink-0 transition-colors ${
+        className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 shrink-0 transition-colors ${
           isActive ? 'text-orange-600' : 'text-orange-500'
         }`}
       />
@@ -94,7 +94,7 @@ export function AiSearchBox() {
         <button
           type="button"
           onClick={handleClear}
-          className="absolute right-28 p-1 text-gray-400 hover:text-gray-600 rounded-full transition-colors"
+          className="absolute right-28 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded-full transition-colors"
           aria-label="清空"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -102,7 +102,7 @@ export function AiSearchBox() {
           </svg>
         </button>
       )}
-      <span className="absolute right-4 text-[11px] text-gray-400 select-none pointer-events-none whitespace-nowrap">
+      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 select-none pointer-events-none whitespace-nowrap">
         Powered by <span className="font-semibold text-orange-500">LockAI</span>
       </span>
     </form>

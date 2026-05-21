@@ -19,6 +19,12 @@ import { thumbHashToDataURL } from 'thumbhash';
 interface FileCardSimpleProps {
   file: File;
   onFileUpdate?: () => void;
+  // /files?person=<id> 视图下传入,展示"设为代表"按钮
+  setAsCover?: {
+    label: string;             // 按钮 hover title,如 "设为 张三 的代表"
+    onClick: () => void;       // 父组件调 setPersonCover(personId, file.id)
+    isPending?: boolean;
+  };
 }
 
 /**
@@ -26,7 +32,7 @@ interface FileCardSimpleProps {
  * 
  * 从 SignedUrlContext 获取签名 URL（由 FileGrid 批量获取）
  */
-export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
+export function FileCardSimple({ file, onFileUpdate, setAsCover }: FileCardSimpleProps) {
   const { isMobile, isTouchDevice } = useDeviceDetect();
   const router = useRouter();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -92,7 +98,7 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
     addDownloadTask({
       files: [{
         fileId: file.id,
-        filename: file.original_filename || file.filename,
+        filename: file.filename || file.original_filename || '',
         size: file.size || 0,
         contentType: file.content_type,
       }],
@@ -196,6 +202,22 @@ export function FileCardSimple({ file, onFileUpdate }: FileCardSimpleProps) {
               {isVideo ? '点击播放' : '预览'}
             </span>
           </div>
+
+          {/* 右上角:设为人物代表(仅 person 视图下出现) */}
+          {setAsCover && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!setAsCover.isPending) setAsCover.onClick();
+              }}
+              disabled={setAsCover.isPending}
+              title={setAsCover.label}
+              className="absolute top-1.5 right-1.5 px-2 py-1 text-[11px] font-medium rounded bg-white/85 text-gray-700 shadow-sm hover:bg-orange-500 hover:text-white disabled:opacity-60 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              {setAsCover.isPending ? '设置中…' : setAsCover.label}
+            </button>
+          )}
         </div>
 
         {/* 文件信息 - 移动端优化间距 */}

@@ -92,11 +92,16 @@ apiClient.interceptors.response.use(
         showToast.error('请求超时，请重试', { id: 'request-timeout' });
       }
 
-      // Return structured error
+      // 后端约定 body 是 { error: { code, message, ...其他字段 } };
+      // 老代码退化读 data.* 不到位,这里两层都看一下,优先 data.error.*
+      const errBody = (data as { error?: { code?: string; message?: string; details?: unknown } } | null)?.error
+        || (data as { code?: string; message?: string; details?: unknown } | null)
+        || {};
       return Promise.reject({
-        code: data?.code || 'UNKNOWN_ERROR',
-        message: data?.message || '发生未知错误',
-        details: data?.details,
+        code: errBody.code || 'UNKNOWN_ERROR',
+        message: errBody.message || '发生未知错误',
+        // details 留 entire body,这样像 NAME_CONFLICT 里 existing 这种附加字段能透出
+        details: errBody,
       });
     } else if (error.request) {
       // Network error - no response received. Dedupe so parallel failures don't spam.

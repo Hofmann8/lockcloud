@@ -68,7 +68,7 @@ export function FileMetadata({ file, onFileUpdate }: FileMetadataProps) {
     addDownloadTask({
       files: [{
         fileId: file.id,
-        filename: file.original_filename || file.filename,
+        filename: file.filename || file.original_filename || '',
         size: file.size || 0,
         contentType: file.content_type,
       }],
