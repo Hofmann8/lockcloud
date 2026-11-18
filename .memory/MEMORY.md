@@ -1,0 +1,24 @@
+- [User profile](user_profile.md) — 浙大研究者(DFM Locking 舞队成员),既写工程也发论文,技术语义高
+- [LockCloud / LockAI 项目背景](project_lockcloud.md) — 私有云存储 + 关联 AI 产品,正规划 embedding 检索 + 人脸 + 动作搜索
+- [架构决策:embedding 检索路线](decision_embedding_arch.md) — 多模态 embedding 走阿里云 tongyi-embedding-vision-flash,人脸走 FC+InsightFace,向量存本地 sqlite-vec
+- [未来研究方向:舞蹈动作检索](research_dance_motion.md) — 用户半玩笑提到等科研空了自己做并投会议,记录可发掘的论文 gap
+- [坑:sqlite-vec aux REAL 列](gotcha_sqlite_vec_aux_real.md) — vec0 0.1.9 在 `+xxx REAL` aux 列上报 chunk_size 错,改用 INTEGER basis points
+- [Python 线程并发上限](feedback_python_thread_concurrency.md) — HTTP API 调用 ThreadPoolExecutor 别超 64,GIL + SDK CPU 活会让 256 反而把 CPU 打满
+- [显示文件名优先级](feedback_filename_priority.md) — UI 显示永远 `filename || original_filename`,不许反过来,用户重命名优先级最高
+- [别 parse 文件名](gotcha_no_filename_parsing.md) — 不许正则抓时间/序号/活动等元数据,用 DB 字段承载
+- [硬件架构地图](project_hardware_arch.md) — Win amd64 主开发机,Mac M4 ARM64,FC/VPS 都是 amd64 Linux,Docker build 在 Win 干别在 Mac
+- [Docker provenance 坑](gotcha_docker_provenance.md) — Docker 24+ buildx 默认加 unknown 平台 layer,阿里云 FC 部署会 pending,必须 `--provenance=false`
+- [OSS 桶布局（2026-09 迁移后）](decision_oss_layout.md) — 原文件 `files/{uuid}` 永不变、目录只在数据库、派生文件放 `media/` 避免触发器自触发、style 名白名单；缤纷云公开中转桶已删；上线步骤和待办见 DEPLOY.md
+- [坑:人脸 bbox 用 raw 坐标系](gotcha_bitiful_rect_raw_coord.md) — bbox 存 raw(不读 EXIF)系;OSS 裁剪先 auto-orient,0 在 raw 上裁再按 orientation 旋转,EXIF=6/8 竖拍照尤其敏感
+- [别擅自执行写副作用命令](feedback_no_execute_without_permission.md) — worker / migration / 调外部服务的脚本写完不要自己跑,等用户在他机器执行
+- [重构边界](feedback_refactor_scope.md) — 原地改不开新目录、动作 emoji GIF 要留、播放器别喧宾夺主（团建视频多）
+- [界面文案](feedback_ui_copy.md) — 像 Apple 一样简练有质感；不解释实现、不用口语；后端报错同样是用户语言，异常原文只进日志
+- [不许动 favicon](feedback_favicon.md) — 重构、换主题都不碰图标文件，沿用现在这套
+- [重构定案（2026-09）](decision_refactor_2026_09.md) — 先迁 OSS 再重构、FastAPI 保兼容（绑 5001）、亮色默认暗色可选、钴蓝强调色、功能往大做重计算走 FC
+- [坑：软删和回收站](gotcha_soft_delete_trash.md) — ORM 钩子自动藏回收站里的文件，要看加 `include_deleted`，裸 SQL（vec0、faces）必须自己拼过滤
+- [LockAuth 边界](feedback_lockauth_boundary.md) — LockCloud 不碰 LockAuth 的库和头像；要数据走它的接口，缺接口在 `lockauth/REQUESTS.md` 提需求
+- [动作要快](feedback_move_fast.md) — 本地/只读的事直接做完再汇报；上线切换压成一个脚本一次跑完，别一步步来回确认
+- [坑：人物聚类每晚重建](gotcha_persons_rebuilt_nightly.md) — `persons.id` 每晚会变；名字、合并、置顶头像要记在 `real_people` 的锚点上（`services/person_anchors.py`）才留得住
+- [坑：OSS 图片处理 20 MB 上限、容器核数](gotcha_oss_image_20mb.md) — 大图走 FC 存的 preview.jpg（`image_source`）；容器里 os.cpu_count 是宿主机的，按 cgroup 定线程
+- [LockAI 分析（2026-11）](decision_lockai_analysis.md) — 成员发起分析（每人每月 3 次），分析过才有节拍器和分段；语义只听 omni，算法只管拍点；八拍数错了在"申请编辑"里进工作台改
+- [文件格式（2026-11）](decision_file_formats.md) — 只有一张格式表 services/formats.py（FC 留副本靠测试对齐）；HEIC/RAW 等走转正 preview；Live Photo 按苹果内容标识配对；音频不用分析就有节拍；文档预览用户明确不做

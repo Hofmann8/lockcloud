@@ -17,22 +17,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask
-from extensions import db
-from config import config
+from sqlalchemy import text
+
+import database
+from config import settings
 
 
 def run_migration():
     """Run the migration"""
-    app = Flask(__name__)
-    app.config.from_object(config[os.environ.get('FLASK_ENV', 'development')])
-    
-    db.init_app(app)
-    
-    with app.app_context():
+    with database.session() as db:
         # Check if column already exists
         from sqlalchemy import inspect
-        inspector = inspect(db.engine)
+        inspector = inspect(db.get_bind())
         columns = [col['name'] for col in inspector.get_columns('users')]
         
         if 'avatar_key' in columns:
@@ -43,19 +39,19 @@ def run_migration():
         print("[...] Adding 'avatar_key' column to users table")
         
         # Use raw SQL for compatibility with different databases
-        db_url = app.config.get('DATABASE_URL', '')
+        db_url = settings.database_url
         
         if db_url.startswith('sqlite'):
-            db.session.execute(db.text(
+            db.execute(text(
                 "ALTER TABLE users ADD COLUMN avatar_key VARCHAR(255) DEFAULT NULL"
             ))
         else:
             # PostgreSQL / MySQL
-            db.session.execute(db.text(
+            db.execute(text(
                 "ALTER TABLE users ADD COLUMN avatar_key VARCHAR(255) DEFAULT NULL"
             ))
         
-        db.session.commit()
+        db.commit()
         print("[OK] Migration completed successfully")
 
 

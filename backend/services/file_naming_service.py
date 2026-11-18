@@ -2,17 +2,18 @@
 File Naming Service for LockCloud
 Handles automatic file naming based on activity date and sequential indexing
 """
+import logging
 import os
 from datetime import date
-from typing import Optional
-from flask import current_app
+
+log = logging.getLogger(__name__)
 
 
 class FileNamingService:
     """Service class for automatic file naming operations"""
     
     @staticmethod
-    def generate_filename(activity_date: date, file_extension: str) -> str:
+    def generate_filename(db, activity_date: date, file_extension: str) -> str:
         """
         Generate a unique filename based on activity date and sequential index
         
@@ -20,6 +21,7 @@ class FileNamingService:
         Example: 2025-03-15_001.jpg
         
         Args:
+            db: SQLAlchemy session
             activity_date: The date of the activity
             file_extension: File extension including the dot (e.g., '.jpg', '.pdf')
         
@@ -42,7 +44,7 @@ class FileNamingService:
         date_str = activity_date.strftime('%Y-%m-%d')
         
         # Query count of files with the same activity_date
-        count = File.query.filter(
+        count = db.query(File).filter(
             File.activity_date == activity_date
         ).count()
         
@@ -52,7 +54,7 @@ class FileNamingService:
         # Construct filename
         filename = f"{date_str}_{index}{file_extension}"
         
-        current_app.logger.info(
+        log.info(
             f'Generated filename: {filename} for activity_date: {date_str}'
         )
         
@@ -82,7 +84,7 @@ class FileNamingService:
         # Convert to lowercase for consistency
         extension = extension.lower()
         
-        current_app.logger.debug(
+        log.debug(
             f'Extracted extension: {extension} from filename: {filename}'
         )
         

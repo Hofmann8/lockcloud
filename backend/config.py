@@ -1,76 +1,71 @@
+"""配置：全部来自环境变量（backend/.env），变量名沿用 Flask 版，线上 .env 不用改。"""
+
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(BACKEND_DIR / ".env")
 
 
-class Config:
-    """Base configuration"""
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key'
-    DEBUG = False
-    
-    # Database
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///lockcloud.db'
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    
-    # JWT
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'jwt-secret-key'
-    JWT_ACCESS_TOKEN_EXPIRES = int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 604800))  # 7 days
-    
-    # Email
-    MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.zju.edu.cn')
-    MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
-    MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
-    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
-    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', 'True').lower() == 'true'
-    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER', 'noreply@lockcloud.com')
-    
-    # S3 - 主存储桶（文件系统）
-    S3_ENDPOINT = os.environ.get('S3_ENDPOINT', 'https://s3.bitiful.net')
-    AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
-    AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
-    S3_BUCKET = os.environ.get('S3_BUCKET', 'funkandlove-cloud')
-    AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
-    
-    # S3 - 公共资源桶（头像、备份等）
-    S3_PUBLIC_BUCKET = os.environ.get('S3_PUBLIC_BUCKET', 'funkandlove-cloud-public')
-    S3_PUBLIC_ENDPOINT = os.environ.get('S3_PUBLIC_ENDPOINT', 'https://funkandlove-cloud-public.s3.bitiful.net')
-    
-    # 缤纷云 CDN 高级防盗链配置
-    S3_CDN_DOMAIN = os.environ.get('S3_CDN_DOMAIN')  # CDN 域名，如 https://cdn.example.com
-    S3_TOKEN_KEY = os.environ.get('S3_TOKEN_KEY')  # 缤纷云后台设置的鉴权 Key
-    S3_URL_EXPIRATION = int(os.environ.get('S3_URL_EXPIRATION', 3600))  # 签名 URL 有效期（秒）
-    
-    # CORS
-    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(',')
-    CORS_SUPPORTS_CREDENTIALS = True
-    CORS_ALLOW_HEADERS = ['Content-Type', 'Authorization']
-    CORS_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
-    
-    # SSO Configuration (Funk & Love Auth Service)
-    SSO_AUTH_API_URL = os.environ.get('SSO_AUTH_API_URL', 'https://auth-api.funk-and.love')
-    SSO_AUTH_FRONTEND_URL = os.environ.get('SSO_AUTH_FRONTEND_URL', 'https://auth.funk-and.love')
-    
-    # Rate Limiting
-    RATELIMIT_ENABLED = True
-    RATELIMIT_STORAGE_URL = os.environ.get('RATELIMIT_STORAGE_URL', 'memory://')
-    RATELIMIT_DEFAULT = '100 per minute'
-    RATELIMIT_HEADERS_ENABLED = True
+def _bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.split("#", 1)[0].strip().lower() in ("1", "true", "yes", "on")
 
 
-class DevelopmentConfig(Config):
-    """Development configuration"""
-    DEBUG = True
+def _list(name: str, default: str) -> list[str]:
+    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
 
 
-class ProductionConfig(Config):
-    """Production configuration"""
-    DEBUG = False
+@dataclass
+class Settings:
+    # 旧版用 FLASK_ENV 区分环境，没配时是 development（报错里带 details），和旧版一致
+    env: str = field(default_factory=lambda: os.getenv("APP_ENV") or os.getenv("FLASK_ENV") or "development")
+
+    secret_key: str = field(default_factory=lambda: os.getenv("SECRET_KEY") or "dev-secret-key")
+    database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL") or "sqlite:///lockcloud.db")
+
+    # 和 LockAuth 同一把钥匙：LockAuth 签的令牌这边也认
+    jwt_secret_key: str = field(default_factory=lambda: os.getenv("JWT_SECRET_KEY") or "jwt-secret-key")
+    jwt_expires_seconds: int = field(default_factory=lambda: int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES", "604800")))
+
+    # 对象存储：阿里云 OSS（杭州），说明见 services/storage.py
+    oss_access_key_id: str | None = field(default_factory=lambda: os.getenv("OSS_ACCESS_KEY_ID"))
+    oss_access_key_secret: str | None = field(default_factory=lambda: os.getenv("OSS_ACCESS_KEY_SECRET"))
+    oss_region: str = field(default_factory=lambda: os.getenv("OSS_REGION", "cn-hangzhou"))
+    oss_bucket: str = field(default_factory=lambda: os.getenv("OSS_BUCKET", "lock-cloud"))
+    # 给浏览器 / App 的签名地址用外网 endpoint；服务器自己读写走内网（Lock001 在杭州）
+    oss_endpoint: str = field(default_factory=lambda: os.getenv("OSS_ENDPOINT", "https://oss-cn-hangzhou.aliyuncs.com"))
+    oss_internal_endpoint: str | None = field(default_factory=lambda: os.getenv("OSS_INTERNAL_ENDPOINT") or None)
+
+    # 媒体 FC 处理完回调 /api/files/internal/media-result 时带的密钥
+    media_callback_token: str | None = field(default_factory=lambda: os.getenv("MEDIA_CALLBACK_TOKEN"))
+
+    cors_origins: list[str] = field(default_factory=lambda: _list("CORS_ORIGINS", "http://localhost:3000"))
+
+    # Funk & Love 统一登录（LockAuth）
+    sso_auth_api_url: str = field(default_factory=lambda: os.getenv("SSO_AUTH_API_URL", "https://auth.funk-and.love"))
+    sso_auth_frontend_url: str = field(default_factory=lambda: os.getenv(
+        "SSO_AUTH_FRONTEND_URL", "https://auth.funk-and.love"))
+    # 头像归 LockAuth：用这个密钥调它的 /api/auth/service/avatars（见 lockauth/REQUESTS.md）；不配就不显示头像
+    lockauth_service_key: str = field(default_factory=lambda: os.getenv("LOCKAUTH_SERVICE_KEY", ""))
+
+    # 限流：每个接口每个 IP 每分钟 100 次，测试里关掉
+    ratelimit_enabled: bool = field(default_factory=lambda: _bool("RATELIMIT_ENABLED", True))
+
+    @property
+    def debug(self) -> bool:
+        return self.env != "production"
+
+    @property
+    def is_production(self) -> bool:
+        return self.env == "production"
 
 
-config = {
-    'development': DevelopmentConfig,
-    'production': ProductionConfig,
-    'default': DevelopmentConfig
-}
+settings = Settings()

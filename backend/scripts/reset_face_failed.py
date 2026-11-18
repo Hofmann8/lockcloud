@@ -16,8 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import bindparam, text  # noqa: E402
 
-from app import create_app  # noqa: E402
-from extensions import db  # noqa: E402
+import database  # noqa: E402
 
 
 def main():
@@ -26,17 +25,16 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
-    app = create_app()
-    with app.app_context():
+    with database.session() as db:
         if args.ids:
             ids = [int(x) for x in args.ids.split(",") if x.strip()]
             stmt = text(
                 "SELECT id, filename, face_status FROM files "
                 "WHERE id IN :ids AND face_status='failed'"
             ).bindparams(bindparam("ids", expanding=True))
-            rows = db.session.execute(stmt, {"ids": ids}).fetchall()
+            rows = db.execute(stmt, {"ids": ids}).fetchall()
         else:
-            rows = db.session.execute(
+            rows = db.execute(
                 text(
                     "SELECT id, filename, face_status FROM files "
                     "WHERE face_status='failed' ORDER BY id"
@@ -63,12 +61,12 @@ def main():
                 "UPDATE files SET face_status='pending' "
                 "WHERE id IN :ids AND face_status='failed'"
             ).bindparams(bindparam("ids", expanding=True))
-            db.session.execute(stmt, {"ids": ids})
+            db.execute(stmt, {"ids": ids})
         else:
-            db.session.execute(
+            db.execute(
                 text("UPDATE files SET face_status='pending' WHERE face_status='failed'")
             )
-        db.session.commit()
+        db.commit()
         print(f"已重置 {len(rows)} 行。")
         return 0
 

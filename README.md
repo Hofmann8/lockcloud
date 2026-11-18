@@ -1,161 +1,78 @@
-# 🔒 LockCloud
+# LockCloud
 
-浙江大学 DFM Locking 舞队私有云存储服务
+浙江大学 DFM Locking 舞队 Funk & Love 的影像档案：把训练、比赛、团建的照片和视频按活动收好，能按人、按画面内容找到，视频带练舞用的节拍尺、慢放、镜像和并排对比。
 
-一个安全、易用的团队文件管理系统，支持文件上传、下载、预览和管理员权限控制。
+线上地址：`https://cloud.funk-and.love`
 
-## ✨ 特性
-
-- 🔐 **安全认证** - JWT + 邮箱验证双重保障
-- 📁 **文件管理** - 上传、下载、删除、预览
-- 🏷️ **标签系统** - 灵活的文件分类和搜索
-- 📱 **多端支持** - Web + 移动端 App
-- 👥 **权限控制** - 普通用户和管理员角色
-- 📊 **操作日志** - 完整的审计追踪
-- 🌐 **中文界面** - 完全本地化
-
-## 🏗️ 技术架构
+## 组成
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Web Frontend   │     │  Mobile App     │     │                 │
-│  Next.js 16     │     │  Expo / RN      │     │  Flask Backend  │
-│  React 19       │     │  React Native   │     │  Python 3.9+    │
-│  TypeScript     │     │  TypeScript     │     │  SQLAlchemy     │
-└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
-         │                       │                       │
-         └───────────────────────┼───────────────────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │  PostgreSQL 13  │
-                        │  AWS S3 存储     │
-                        └─────────────────┘
+浏览器（Next.js）
+   │  登录令牌                    │ 直传 / 签名下载
+   ▼                              ▼
+后端 FastAPI ───────────────► 阿里云 OSS lock-cloud（私有，杭州）
+   │  SQLite + sqlite-vec              │ 新文件触发
+   │                                   ▼
+   ├─► LockAuth（登录、头像）       媒体 FC（转码、预览图、抽帧、节拍、打包）
+   ├─► DashScope（图文向量）           │ 处理完回调后端
+   └─► 人脸 FC（InsightFace）  ◄───────┘
 ```
 
-## 📁 项目结构
+服务器只做调度和查询。转码、人脸识别、节拍检测、打包下载都在阿里云函数计算里跑，向量模型用 DashScope 的接口，数据（包括向量）存在服务器本地的 SQLite 里。
 
-```
-lockcloud/
-├── backend/                 # Flask 后端 API
-│   ├── auth/               # 认证模块
-│   ├── files/              # 文件管理
-│   ├── tags/               # 标签系统
-│   ├── file_requests/      # 文件请求
-│   ├── services/           # S3 服务
-│   └── ...
-│
-├── lockcloud-frontend/     # Next.js Web 前端
-│   ├── app/               # 页面路由
-│   ├── components/        # UI 组件
-│   ├── lib/               # 工具库
-│   └── ...
-│
-├── LockCloud-app/          # Expo 移动端 App
-│   ├── app/               # 页面路由 (Expo Router)
-│   ├── components/        # UI 组件
-│   ├── hooks/             # 自定义 Hooks
-│   ├── stores/            # Zustand 状态管理
-│   └── ...
-│
-└── README.md
-```
+| 目录 | 内容 |
+|---|---|
+| `backend/` | 后端接口（FastAPI、SQLAlchemy 2.0、SQLite + sqlite-vec） |
+| `backend/fc/` | 两个函数计算镜像：`media/`（上传后的媒体处理和打包）、`face/`（人脸识别） |
+| `lockcloud-frontend/` | 网页前端（Next.js 16、React 19、Tailwind v4） |
+| `deploy.py`、`cutover.sh` | 打包脚本、从旧版切换到新版的一次性脚本 |
 
-## 🚀 快速开始
+手机 App（Flutter）是单独的项目，在上一级的 `LockCloud-app/`，不在这个仓库里。后端保留了它和旧版 App 在用的接口。
 
-### 环境要求
+## 文档
 
-- Node.js 18+
-- Python 3.9+
-- PostgreSQL 13+
-- S3 兼容存储
+| 文件 | 讲什么 |
+|---|---|
+| [CONTRACT.md](./CONTRACT.md) | 接口契约：字段、错误码、行为约定。改接口先改这里和测试 |
+| [FRONTEND_PLAN.md](./FRONTEND_PLAN.md) | 前端的设计方案：品牌、页面、播放器、组件清单 |
+| [DEPLOY.md](./DEPLOY.md) | 上线手册：媒体 FC 部署、迁移、切换、回滚、待办 |
+| [backend/README.md](./backend/README.md) | 后端结构、存储规则、测试、开发约定 |
+| [backend/fc/media/README.md](./backend/fc/media/README.md) | 媒体 FC：产物、构建、部署 |
+| [lockcloud-frontend/README.md](./lockcloud-frontend/README.md) | 前端结构和开发约定 |
 
-### 后端
+## 本地开发
+
+后端（Python 用 conda 的 `lockcloud` 环境，Python 3.10）：
 
 ```bash
+conda activate lockcloud
 cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env      # 配置环境变量
-python app.py
+cp .env.example .env        # 按文件里的说明填
+python app.py               # http://localhost:5000，开发环境 /docs 是接口文档
 ```
 
-### Web 前端
+启动时会自动补表补列、起定时任务和后台队列。本地 `.env` 如果填的是线上的 OSS 密钥，这些后台任务读写的就是线上的桶，开发时可以设 `LOCKCLOUD_SCHEDULER_DISABLED=1` 关掉定时任务。
+
+前端：
 
 ```bash
 cd lockcloud-frontend
 npm install
-cp .env.example .env.local  # 配置环境变量
-npm run dev
+npm run dev                 # 默认连 http://localhost:5000
 ```
 
-### 移动端 App
+本地登录：后端 `.env` 里设 `DEV_LOGIN_ENABLED=true`，打开前端的 `/auth/dev-login`。这个开关只在本地用，线上不能开。
+
+本机的库落后于线上时：在服务器上拿一份快照拷到本机，用 `backend/scripts/sync_local_db.py` 同步（先备份本机库，旧结构的快照会自动转成新结构；用法写在文件开头）。
+
+检查：
 
 ```bash
-cd LockCloud-app
-npm install
-cp .env.example .env        # 配置环境变量
-npx expo start
+cd backend && pytest                                   # 契约测试，不连任何外部服务
+cd lockcloud-frontend && npx tsc --noEmit && npx eslint .
 ```
 
-## 🔑 核心功能
+## 维护者
 
-| 功能 | Web | App |
-|------|-----|-----|
-| 用户注册/登录 | ✅ | ✅ |
-| 文件上传 | ✅ | ✅ |
-| 文件浏览/搜索 | ✅ | ✅ |
-| 文件预览/下载 | ✅ | ✅ |
-| 标签管理 | ✅ | ✅ |
-| 批量操作 | ✅ | ✅ |
-| 离线支持 | - | ✅ |
-| 管理员功能 | ✅ | - |
-
-## 📖 详细文档
-
-- [后端 API 文档](./backend/README.md)
-- [Web 前端文档](./lockcloud-frontend/README.md)
-- [移动端 App 文档](./LockCloud-app/README.md)
-
-## 🔒 安全特性
-
-- JWT 身份认证
-- Bcrypt 密码加密
-- 邮箱验证机制
-- 请求频率限制
-- CORS 跨域保护
-- 文件类型和大小验证
-
-## 📝 环境变量
-
-### 后端 (.env)
-```bash
-FLASK_ENV=development
-SECRET_KEY=your-secret-key
-DATABASE_URL=postgresql://user:pass@localhost/lockcloud
-JWT_SECRET_KEY=your-jwt-secret
-S3_ENDPOINT_URL=https://s3.bitiful.net
-S3_ACCESS_KEY_ID=your-key
-S3_SECRET_ACCESS_KEY=your-secret
-```
-
-### Web 前端 (.env.local)
-```bash
-NEXT_PUBLIC_API_URL=http://localhost:5000
-NEXT_PUBLIC_S3_BASE_URL=https://your-bucket.s3.bitiful.net
-```
-
-### 移动端 App (.env)
-```bash
-EXPO_PUBLIC_API_URL=http://localhost:5000
-EXPO_PUBLIC_S3_BASE_URL=https://your-bucket.s3.bitiful.net
-```
-
-## 👨‍💻 维护者
-
-**Hofmann** - Funk & Love
-
----
-
-<p align="center">Made with ❤️ for Funk & Love</p>
+Hofmann，Funk & Love

@@ -24,8 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import inspect, text
 
-from app import create_app
-from extensions import db
+import database
 
 
 def _has_table(inspector, name: str) -> bool:
@@ -45,12 +44,11 @@ def _has_index(inspector, table: str, index: str) -> bool:
 
 
 def migrate():
-    app = create_app()
-    with app.app_context():
-        inspector = inspect(db.engine)
+    with database.session() as db:
+        inspector = inspect(db.get_bind())
 
         # Step 1: normalize '未分类' -> NULL
-        affected = db.session.execute(
+        affected = db.execute(
             text(
                 "UPDATE files SET activity_type = NULL "
                 "WHERE activity_type = :legacy"
@@ -63,7 +61,7 @@ def migrate():
         # (column might already be gone on a re-run; guard accordingly)
         if _has_column(inspector, "files", "instructor"):
             if _has_index(inspector, "files", "idx_files_instructor"):
-                db.session.execute(text("DROP INDEX idx_files_instructor"))
+                db.execute(text("DROP INDEX idx_files_instructor"))
                 print("[2/4] dropped index idx_files_instructor")
             else:
                 print("[2/4] index idx_files_instructor not found, skip")
@@ -72,19 +70,19 @@ def migrate():
 
         # Step 3: drop column instructor
         if _has_column(inspector, "files", "instructor"):
-            db.session.execute(text("ALTER TABLE files DROP COLUMN instructor"))
+            db.execute(text("ALTER TABLE files DROP COLUMN instructor"))
             print("[3/4] dropped column files.instructor")
         else:
             print("[3/4] column files.instructor already gone, skip")
 
         # Step 4: drop tag_presets table
         if _has_table(inspector, "tag_presets"):
-            db.session.execute(text("DROP TABLE tag_presets"))
+            db.execute(text("DROP TABLE tag_presets"))
             print("[4/4] dropped table tag_presets")
         else:
             print("[4/4] table tag_presets already gone, skip")
 
-        db.session.commit()
+        db.commit()
         print("Migration completed successfully.")
 
 

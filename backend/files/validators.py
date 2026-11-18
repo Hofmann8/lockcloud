@@ -125,24 +125,9 @@ def validate_directory_path(directory):
 
 
 def get_allowed_file_extensions():
-    """
-    Get list of allowed file extensions
-    
-    Returns:
-        list: Allowed file extensions
-    """
-    return [
-        # Images
-        'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg',
-        # Videos
-        'mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv',
-        # Audio
-        'mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg',
-        # Documents
-        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt',
-        # Archives
-        'zip', 'rar', '7z', 'tar', 'gz'
-    ]
+    """允许上传的扩展名，来自格式表 services/formats.py。"""
+    from services.formats import FORMATS
+    return list(FORMATS)
 
 
 def validate_file_extension(filename):
@@ -167,7 +152,7 @@ def validate_file_extension(filename):
     if extension not in allowed_extensions:
         return {
             'valid': False,
-            'message': f'不支持的文件类型: .{extension}。允许的类型: {", ".join(allowed_extensions)}'
+            'message': f'不支持的文件类型: .{extension}'
         }
     
     return {

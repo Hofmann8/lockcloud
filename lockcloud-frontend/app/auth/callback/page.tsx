@@ -1,115 +1,64 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { PauseMark } from '@/components/brand/PauseMark';
+import { LuckyLocker } from '@/components/brand/LuckyLocker';
+import { ButtonLink } from '@/components/ui/Button';
+import { authApi } from '@/lib/api/auth';
+import { errorMessage } from '@/lib/api/client';
+import { NEXT_KEY } from '@/lib/routes';
 import { useAuthStore } from '@/stores/authStore';
-import { ssoLogin } from '@/lib/api/auth';
-import { toast } from 'react-hot-toast';
 
-/**
- * SSO Callback Page
- * Handles the redirect from Funk & Love Auth Service
- * Verifies the SSO token and creates local session
- */
 function CallbackContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const { setUser, setToken } = useAuthStore();
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [errorMessage, setErrorMessage] = useState('');
+  const params = useSearchParams();
+  const signIn = useAuthStore((s) => s.signIn);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const started = useRef(false);
+  const token = params.get('token');
+  const error = params.get('error') || (!token ? '登录信息缺失，请重新登录' : failed);
 
   useEffect(() => {
-    const handleCallback = async () => {
-      // Get token from URL params (sent by SSO service)
-      const token = searchParams.get('token');
-      const error = searchParams.get('error');
+    if (started.current || !token || params.get('error')) return;
+    started.current = true;
+    authApi
+      .ssoLogin(token)
+      .then((res) => {
+        signIn(res.token, res.user);
+        setDone(true);
+        const next = sessionStorage.getItem(NEXT_KEY);
+        sessionStorage.removeItem(NEXT_KEY);
+        window.setTimeout(() => router.replace(next?.startsWith('/') ? next : '/'), 380);
+      })
+      .catch((e) => setFailed(errorMessage(e, '登录失败')));
+  }, [params, token, router, signIn]);
 
-      if (error) {
-        setStatus('error');
-        setErrorMessage(decodeURIComponent(error));
-        toast.error('登录失败: ' + decodeURIComponent(error));
-        return;
-      }
-
-      if (!token) {
-        setStatus('error');
-        setErrorMessage('未收到认证信息');
-        toast.error('登录失败: 未收到认证信息');
-        return;
-      }
-
-      try {
-        // Verify SSO token with our backend and get local token
-        const response = await ssoLogin(token);
-        
-        // Store auth data
-        setToken(response.token);
-        setUser(response.user);
-        
-        // Also store in localStorage for persistence
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('lockcloud_token', response.token);
-        }
-
-        setStatus('success');
-        toast.success('登录成功！');
-        
-        // Redirect to files page
-        setTimeout(() => {
-          router.push('/files');
-        }, 500);
-      } catch (err: unknown) {
-        setStatus('error');
-        const message = (err as { message?: string })?.message || '登录验证失败';
-        setErrorMessage(message);
-        toast.error(message);
-      }
-    };
-
-    handleCallback();
-  }, [searchParams, router, setUser, setToken]);
+  if (error) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center px-6 text-center animate-fade">
+        <LuckyLocker size={120} />
+        <p className="mt-4 text-[15px] font-medium text-fg">登录失败</p>
+        <p className="mt-1.5 max-w-sm text-[13px] text-fg-faint">{error}</p>
+        <ButtonLink href="/auth/login" variant="primary" className="mt-6">
+          重新登录
+        </ButtonLink>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6 text-center">
-      {status === 'loading' && (
-        <>
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-black mx-auto"></div>
-          <p className="text-accent-gray">正在验证登录信息...</p>
-        </>
-      )}
-
-      {status === 'success' && (
-        <>
-          <div className="text-4xl">✓</div>
-          <p className="text-accent-green font-medium">登录成功，正在跳转...</p>
-        </>
-      )}
-
-      {status === 'error' && (
-        <>
-          <div className="text-4xl text-red-500">✗</div>
-          <p className="text-red-500 font-medium">登录失败</p>
-          <p className="text-accent-gray text-sm">{errorMessage}</p>
-          <button
-            onClick={() => router.push('/auth/login')}
-            className="mt-4 px-4 py-2 bg-primary-black text-white rounded hover:bg-gray-800"
-          >
-            返回登录
-          </button>
-        </>
-      )}
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3" role="status">
+      <PauseMark size={36} state={done ? 'done' : 'busy'} />
+      <p className="text-[13px] text-fg-faint">{done ? '已登录' : '正在登录…'}</p>
     </div>
   );
 }
 
 export default function CallbackPage() {
   return (
-    <Suspense fallback={
-      <div className="space-y-6 text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-black mx-auto"></div>
-        <p className="text-accent-gray">正在验证登录信息...</p>
-      </div>
-    }>
+    <Suspense>
       <CallbackContent />
     </Suspense>
   );

@@ -1,310 +1,77 @@
-# LockCloud Frontend
+# LockCloud 前端
 
-浙江大学 DFM Locking 舞队私有云存储服务 - 前端应用
+LockCloud 的网页端。设计方案（品牌、页面、播放器、组件清单）在上一级的 `FRONTEND_PLAN.md`，接口契约在 `CONTRACT.md`。
 
 ## 技术栈
 
-- **Next.js 16.0.1** - React 框架（App Router）
-- **React 19.2.0** - UI 库
-- **TypeScript 5+** - 类型安全
-- **Tailwind CSS 4** - 样式框架
-- **Axios** - HTTP 客户端
-- **React Query (TanStack Query)** - 数据获取和缓存
-- **Zustand** - 轻量级状态管理
-- **React Hot Toast** - 通知提示
-- **date-fns** - 日期格式化
+- Next.js 16.3.6（App Router）、React 19。这一版 Next 和常见的写法有差别，动 Next 相关的代码前先看 `node_modules/next/dist/docs/`
+- Tailwind CSS v4，颜色、字体、动效的 token 都在 `app/globals.css`
+- TanStack Query（服务器数据）、Zustand（本地状态）
+- hls.js + 自己写的播放器
+- lucide-react 图标、thumbhash 占位图
 
-## 项目结构
+所有页面都是客户端组件，数据在浏览器里取，没有服务端取数。
+
+## 结构
 
 ```
-lockcloud-frontend/
-├── app/                    # Next.js App Router 页面
-│   ├── layout.tsx         # 根布局
-│   └── page.tsx           # 首页
-├── components/            # React 组件
-├── lib/                   # 工具库
-│   ├── api/              # API 客户端
-│   │   └── client.ts     # Axios 配置
-│   ├── utils/            # 工具函数
-│   │   ├── format.ts     # 格式化函数
-│   │   └── validation.ts # 验证函数
-│   └── constants.ts      # 常量定义
-├── stores/               # Zustand 状态管理
-│   ├── authStore.ts     # 认证状态
-│   └── fileStore.ts     # 文件状态
-├── types/               # TypeScript 类型定义
-│   └── index.ts
-├── locales/             # 国际化（中文）
-│   ├── zh-CN.ts        # 中文翻译
-│   └── index.ts
-└── public/             # 静态资源
+app/
+  layout.tsx              根布局：字体、主题、Providers
+  (app)/                  登录后的页面，共用外壳（侧栏、命令面板、上传队列）
+    page.tsx              资料库
+    activity/             活动（?date=&type=&name=）
+    f/[id]/               文件整页
+    search/  people/  compare/  upload/  requests/  trash/  admin/
+  auth/                   login、callback（LockAuth 登录回来）、dev-login（本地免密）
+components/
+  ui/                     Button、Dialog、Popover、Sheet、Toast、Tooltip、Field
+  brand/                  PauseMark（标志和加载动画）、LuckyLocker（空状态）
+  shell/                  Sidebar、MobileNav、CommandPalette、PageHeader
+  media/                  Thumb、JustifiedGrid、FileGrid、SelectionBar
+  viewer/                 FileViewer、ImageViewer、InfoPanel
+  player/                 Player、ProgressBar、BeatRuler、节拍计算
+  files/  library/  upload/   编辑对话框、筛选条、活动卡、上传
+lib/
+  api/                    client.ts（axios、统一错误）、files.ts、media.ts、types.ts
+  urls.ts                 签名地址的批量获取和缓存、显示名、宽高比
+  theme.tsx  hooks.ts  format.ts  permissions.ts  routes.ts
+stores/                   authStore、uploadStore、selectionStore、uiStore
+public/moves/             Lucky Locker 动作表情（16 个 GIF）
 ```
 
-## 快速开始
-
-### 1. 安装依赖
-
-确保已安装 Node.js 18+ 和 npm:
+## 开发
 
 ```bash
-# 检查版本
-node --version  # 应该 >= 18.0.0
-npm --version
-
-# 安装依赖
 npm install
-```
-
-### 2. 配置环境变量
-
-复制示例文件并编辑:
-
-```bash
-cp .env.example .env.local
-```
-
-编辑 `.env.local` 文件：
-
-```bash
-# API 配置
-NEXT_PUBLIC_API_URL=http://localhost:5000
-
-# S3 配置
-NEXT_PUBLIC_S3_BASE_URL=https://funkandlove-cloud2.s3.bitiful.net
-NEXT_PUBLIC_S3_MAIN_URL=https://funkandlove-main.s3.bitiful.net
-```
-
-**注意:** 
-- 开发环境使用 `http://localhost:5000`
-- 生产环境使用实际的 API 域名，如 `https://api.cloud.funk-and.love`
-
-### 3. 启动开发服务器
-
-```bash
 npm run dev
 ```
 
-访问 [http://localhost:3000](http://localhost:3000)
+接口地址读 `NEXT_PUBLIC_API_URL`：开发默认 `http://localhost:5000`（`.env.development`），生产默认 `https://cloud.funk-and.love`（`.env.production`）。要临时改就写在 `.env.local` 里。
 
-前端将自动连接到后端 API (确保后端已启动)。
+本地登录：后端 `.env` 里开 `DEV_LOGIN_ENABLED=true`，打开 `/auth/dev-login`。
 
-## 开发指南
+检查：
 
-### 构建生产版本
+```bash
+npx tsc --noEmit
+npx eslint .
+```
+
+## 约定
+
+- 接口都从 `lib/api/` 调，页面里不拼地址。类型手写在 `lib/api/types.ts`，和 `CONTRACT.md` 一一对应，契约改了两边一起改。
+- 错误统一是 `ApiError`（`code` 做分支，`message` 是后端给的中文，直接显示）。查询和修改出错时由 `lib/providers.tsx` 统一弹提示，不想弹的加 `meta: { silent: true }`。401 统一跳登录页并带回原地址。
+- 图片、视频地址都是后端签的：用 `useSignedUrl(id, 用途名)`，不自己拼存储参数。用途名有 `thumbnav`、`thumbmobile`、`thumbdesktop`、`previewdesktop` 等。
+- 显示名永远是 `filename || original_filename`（`displayName`），不从文件名里解析日期、序号、活动。
+- 文件的 `width` / `height` 是原始像素，`orientation` 为 5–8 时显示宽高要对调（`aspectOf`）。人脸框是原始坐标，画之前用 `lib/faces.ts` 的 `uprightBox` 换算。
+- 上传者和管理员能直接改删，其他人点了走申请（`lib/permissions.ts`）。删除是进回收站。
+- 看片的地方（查看器、播放器、对比页）用常暗的 `.stage` 色板，不跟随主题。
+- 图标文件（favicon）不改。
+
+## 构建和部署
 
 ```bash
 npm run build
-npm start
 ```
 
-### 代码检查
-
-```bash
-npm run lint
-```
-
-### 清理缓存
-
-```bash
-# 清理 Next.js 缓存
-rm -rf .next
-
-# 重新安装依赖
-rm -rf node_modules package-lock.json
-npm install
-```
-
-## 功能特性
-
-### 已实现
-
-- ✅ 用户认证（注册、登录、邮箱验证）
-- ✅ 文件浏览和搜索
-- ✅ 文件上传（拖拽上传）
-- ✅ 文件删除和预览
-- ✅ 文件过滤（类型、排序）
-- ✅ 管理员日志查看
-- ✅ 管理员统计面板
-- ✅ 响应式设计
-- ✅ 错误边界和加载状态
-- ✅ 中文本地化
-- ✅ 手绘风格 UI 组件
-
-### 核心组件
-
-- **认证页面**: 登录、注册、邮箱验证
-- **文件管理**: 上传区、文件网格、文件卡片
-- **管理员面板**: 操作日志、统计数据
-- **通用组件**: 按钮、输入框、模态框、加载动画
-
-## 设计系统
-
-### 颜色方案
-
-- 主色：黑色 (#1a1a1a)、白色 (#fafafa)
-- 强调色：橙色 (#ff8c42)、绿色 (#7bc96f)、蓝色 (#5fa8d3)、灰色 (#95a5a6)
-
-### 字体
-
-- 主字体：Inter
-- 手写字体：Caveat（用于标题）
-
-### 设计风格
-
-- 手绘风格边框和线条
-- 轻微的元素旋转
-- 宽松的留白
-- 非对称平衡
-
-## API 集成
-
-所有 API 调用通过 `lib/api/client.ts` 中配置的 Axios 实例进行：
-
-- 自动添加 JWT token
-- 统一错误处理
-- 401 自动跳转登录
-- 中文错误消息
-
-## 状态管理
-
-### Auth Store
-
-```typescript
-const { user, token, isAuthenticated, setAuth, clearAuth } = useAuthStore();
-```
-
-### File Store
-
-```typescript
-const { files, currentDirectory, setFiles, setCurrentDirectory } = useFileStore();
-```
-
-## 本地化
-
-所有 UI 文本使用中文，通过 `locales/zh-CN.ts` 管理：
-
-```typescript
-import { t } from '@/locales';
-
-// 使用翻译
-<button>{t.common.submit}</button>
-```
-
-## 部署
-
-### Vercel 部署（推荐）
-
-1. 连接 GitHub 仓库
-2. 配置环境变量
-3. 自动部署
-
-### 自托管部署
-
-```bash
-npm run build
-npm start
-```
-
-使用 Nginx 反向代理：
-
-```nginx
-server {
-    listen 80;
-    server_name cloud.funk-and.love;
-    
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-## 开发指南
-
-### 添加新页面
-
-```typescript
-// app/new-page/page.tsx
-export default function NewPage() {
-  return <div>新页面</div>
-}
-```
-
-### 添加新组件
-
-```typescript
-// components/NewComponent.tsx
-interface NewComponentProps {
-  title: string;
-}
-
-export default function NewComponent({ title }: NewComponentProps) {
-  return <div>{title}</div>
-}
-```
-
-### 使用 API
-
-```typescript
-import { useQuery } from '@tanstack/react-query';
-import { filesApi } from '@/lib/api/files';
-
-const { data, isLoading } = useQuery({
-  queryKey: ['files'],
-  queryFn: () => filesApi.getFiles()
-});
-```
-
-### 状态管理
-
-```typescript
-import { useAuthStore } from '@/stores/authStore';
-
-const { user, isAuthenticated, setAuth } = useAuthStore();
-```
-
-## 性能优化
-
-- 使用 Next.js 图片优化
-- React Query 自动缓存
-- 懒加载组件
-- 代码分割
-
-## 浏览器支持
-
-- Chrome/Edge (最新版)
-- Firefox (最新版)
-- Safari (最新版)
-
-## 故障排除
-
-### 端口被占用
-```bash
-# Windows
-netstat -ano | findstr :3000
-taskkill /PID <PID> /F
-
-# Linux/Mac
-lsof -ti:3000 | xargs kill
-```
-
-### 依赖问题
-```bash
-rm -rf node_modules package-lock.json
-npm install
-```
-
-### 构建失败
-```bash
-rm -rf .next
-npm run build
-```
-
-## 许可证
-
-内部项目 - 仅供 Funk & Love 使用
-
-## 维护者
-
-Hofmann - Funk & Love
+产物是 `output: 'standalone'`。上一级的 `deploy.py` 把 `.next/standalone`、`.next/static`、`public` 打成 `dist/lockcloud-frontend.zip`，服务器上解压后 `npm start`（实际是 `node server.js`，监听 `127.0.0.1:3001`）。构建里的接口地址如果是 `localhost:5000`，`deploy.py` 会报错拦下。上线步骤见 `DEPLOY.md`。

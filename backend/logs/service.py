@@ -3,20 +3,22 @@ Logging service for LockCloud
 Handles creation and querying of file operation logs
 """
 from datetime import datetime
-from flask import request
-from extensions import db
+
+from database import paginate
 from logs.models import FileLog, OperationType
 
 
-def log_file_operation(user_id, operation, file_id=None, file_path=None):
+def log_file_operation(db, user_id, operation, file_id=None, file_path=None, ip_address=None, user_agent=None):
     """
     Log a file operation to the database
     
     Args:
+        db: SQLAlchemy session
         user_id: ID of the user performing the operation
         operation: Type of operation ('upload', 'delete', 'access')
         file_id: ID of the file (optional)
         file_path: Path of the file
+        ip_address / user_agent: 请求方信息（可选）
         
     Returns:
         FileLog: Created log entry
@@ -29,20 +31,6 @@ def log_file_operation(user_id, operation, file_id=None, file_path=None):
     if operation not in valid_operations:
         raise ValueError(f"Invalid operation type: {operation}. Must be one of {valid_operations}")
     
-    # Get request context information
-    ip_address = None
-    user_agent = None
-    
-    if request:
-        # Get IP address (handle proxy headers)
-        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if ip_address and ',' in ip_address:
-            # Take the first IP if there are multiple
-            ip_address = ip_address.split(',')[0].strip()
-        
-        # Get user agent
-        user_agent = request.headers.get('User-Agent')
-    
     # Create log entry
     log = FileLog.create_log(
         user_id=user_id,
@@ -54,13 +42,13 @@ def log_file_operation(user_id, operation, file_id=None, file_path=None):
     )
     
     # Save to database
-    db.session.add(log)
-    db.session.commit()
+    db.add(log)
+    db.commit()
     
     return log
 
 
-def get_logs(user_id=None, operation=None, start_date=None, end_date=None, 
+def get_logs(db, user_id=None, operation=None, start_date=None, end_date=None,
              page=1, per_page=50):
     """
     Query file logs with filters and pagination
@@ -77,7 +65,7 @@ def get_logs(user_id=None, operation=None, start_date=None, end_date=None,
         dict: Paginated log results with metadata
     """
     # Start with base query
-    query = FileLog.query
+    query = db.query(FileLog)
     
     # Apply filters
     if user_id:
@@ -103,7 +91,7 @@ def get_logs(user_id=None, operation=None, start_date=None, end_date=None,
     query = query.order_by(FileLog.timestamp.desc())
     
     # Paginate results
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    pagination = paginate(query, page, per_page)
     
     return {
         'logs': [log.to_dict(include_user=True, include_file=True) for log in pagination.items],
@@ -116,7 +104,7 @@ def get_logs(user_id=None, operation=None, start_date=None, end_date=None,
     }
 
 
-def get_usage_summary(start_date=None, end_date=None):
+def get_usage_summary(db, start_date=None, end_date=None):
     """
     Generate usage statistics summary
     
@@ -128,12 +116,11 @@ def get_usage_summary(start_date=None, end_date=None):
         dict: Usage statistics including storage, uploads, and active users
     """
     from files.models import File
-    from auth.models import User
     from sqlalchemy import func, distinct
     
     # Build query for files
-    file_query = File.query
-    log_query = FileLog.query
+    file_query = db.query(File)
+    log_query = db.query(FileLog)
     
     # Apply date filters
     if start_date:
@@ -149,7 +136,7 @@ def get_usage_summary(start_date=None, end_date=None):
         log_query = log_query.filter(FileLog.timestamp <= end_date)
     
     # Calculate total storage (sum of all file sizes)
-    total_storage = db.session.query(func.sum(File.size)).filter(
+    total_storage = db.query(func.sum(File.size)).filter(
         File.id.in_([f.id for f in file_query.all()])
     ).scalar() or 0
     
@@ -159,7 +146,7 @@ def get_usage_summary(start_date=None, end_date=None):
     ).count()
     
     # Count active users (users who have performed any operation)
-    active_users = db.session.query(func.count(distinct(FileLog.user_id))).filter(
+    active_users = db.query(func.count(distinct(FileLog.user_id))).filter(
         FileLog.id.in_([log.id for log in log_query.all()])
     ).scalar() or 0
     
@@ -195,7 +182,7 @@ def get_usage_summary(start_date=None, end_date=None):
     }
 
 
-def get_quarterly_stats(year, quarter):
+def get_quarterly_stats(db, year, quarter):
     """
     Get statistics for a specific quarter
     
@@ -227,7 +214,7 @@ def get_quarterly_stats(year, quarter):
         end_date = datetime(year, end_month + 1, 1)
     
     # Get summary for this period
-    summary = get_usage_summary(start_date, end_date)
+    summary = get_usage_summary(db, start_date, end_date)
     summary['quarter'] = quarter
     summary['year'] = year
     

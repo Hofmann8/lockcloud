@@ -1,113 +1,76 @@
 'use client';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from 'react-hot-toast';
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ThemeProvider } from '@/lib/theme';
+import { Toaster, toast } from '@/components/ui/Toast';
+import { ApiError, errorMessage } from '@/lib/api/client';
 import { useAuthStore } from '@/stores/authStore';
 
-/**
- * Providers component that wraps the app with necessary context providers
- */
+declare module '@tanstack/react-query' {
+  interface Register {
+    queryMeta: { silent?: boolean };
+    mutationMeta: { silent?: boolean };
+  }
+}
+
+function report(error: unknown, silent?: boolean) {
+  if (silent) return;
+  // 401 已经在跳登录页了，不再提示
+  if (error instanceof ApiError && error.status === 401) return;
+  toast.error(errorMessage(error), { key: error instanceof ApiError ? error.code : undefined });
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
-  // Create QueryClient instance with optimized default options
   const [queryClient] = useState(
     () =>
       new QueryClient({
+        queryCache: new QueryCache({
+          onError: (error, query) => report(error, query.meta?.silent),
+        }),
+        mutationCache: new MutationCache({
+          onError: (error, _v, _c, mutation) => report(error, mutation.meta?.silent),
+        }),
         defaultOptions: {
           queries: {
-            // Data is considered fresh for 5 minutes
-            staleTime: 5 * 60 * 1000,
-            // Cache data for 10 minutes (gcTime replaces cacheTime in v5)
+            staleTime: 60 * 1000,
             gcTime: 10 * 60 * 1000,
-            // Retry failed requests once
-            retry: 1,
-            // Don't refetch on window focus by default
+            retry: (count, error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500) && count < 1,
             refetchOnWindowFocus: false,
-            // Don't refetch on reconnect for better performance
-            refetchOnReconnect: false,
-            // Don't refetch on mount if data is fresh
-            refetchOnMount: false,
           },
-          mutations: {
-            // Retry failed mutations once
-            retry: 1,
-          },
+          mutations: { retry: false },
         },
-      })
+      }),
   );
 
-  // Track user changes and clear cache when user switches
-  const currentUser = useAuthStore((state) => state.user);
-  const userIdRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const currentUserId = currentUser?.id || null;
-    
-    // If user changed (including logout), clear all queries
-    if (userIdRef.current !== null && userIdRef.current !== currentUserId) {
-      console.log('User changed, clearing React Query cache');
-      queryClient.clear();
-    }
-    
-    userIdRef.current = currentUserId;
-  }, [currentUser?.id, queryClient]);
+  // 换了人就把缓存清掉
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const [lastUser, setLastUser] = useState<number | null>(userId);
+  if (userId !== lastUser) {
+    setLastUser(userId);
+    if (lastUser !== null) queryClient.clear();
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
-      <Toaster
-        position="top-center"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: '#fafafa',
-            color: '#1a1a1a',
-            border: '1px solid rgba(0, 0, 0, 0.1)',
-            borderRadius: '12px',
-            padding: '16px 20px',
-            fontWeight: '500',
-            maxWidth: '500px',
-            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
-            fontSize: '15px',
-            lineHeight: '1.5',
-          },
-          success: {
-            duration: 3000,
-            style: {
-              background: '#7bc96f',
-              color: '#fff',
-              border: '1px solid rgba(123, 201, 111, 0.3)',
-            },
-            iconTheme: {
-              primary: '#fff',
-              secondary: '#7bc96f',
-            },
-          },
-          error: {
-            duration: 5000,
-            style: {
-              background: '#e74c3c',
-              color: '#fff',
-              border: '1px solid rgba(231, 76, 60, 0.3)',
-            },
-            iconTheme: {
-              primary: '#fff',
-              secondary: '#e74c3c',
-            },
-          },
-          loading: {
-            style: {
-              background: '#5fa8d3',
-              color: '#fff',
-              border: '1px solid rgba(95, 168, 211, 0.3)',
-            },
-            iconTheme: {
-              primary: '#fff',
-              secondary: '#5fa8d3',
-            },
-          },
-        }}
-      />
+      <ThemeProvider>
+        <LegacyServiceWorkerCleanup />
+        {children}
+        <Toaster />
+      </ThemeProvider>
     </QueryClientProvider>
   );
+}
+
+// 很早以前注册过 Service Worker，用户浏览器里可能还留着，会拦请求。每次打开主动卸掉。
+function LegacyServiceWorkerCleanup() {
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister())).catch(() => {});
+    }
+    if ('caches' in window) {
+      caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
+    }
+  }, []);
+  return null;
 }

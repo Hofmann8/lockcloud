@@ -15,9 +15,11 @@ import logging
 import threading
 
 from sqlalchemy import event
+from sqlalchemy.orm import object_session
 
-from extensions import db
+import database
 from files.models import File
+from services.embed_trigger import auto_kind
 
 log = logging.getLogger(__name__)
 
@@ -26,13 +28,20 @@ _DIRTY_KEY = "_face_files_dirty"
 _lock = threading.Lock()
 _running = False
 _dirty = False
+_enabled = False
 
 
-def init_face_trigger(app):
-    """注册 SA 事件钩子;app factory 里调用一次。"""
+def kick_videos():
+    """LockAI 分析完成、或分析过的视频重新抽了帧:排一轮帧人脸。"""
+    if _enabled:
+        _trigger()
+
+
+def init_face_trigger():
+    """注册 SA 事件钩子;app.py 的 lifespan 里调用一次。"""
     import os
     if not os.environ.get("FACE_FC_ENDPOINT"):
-        app.logger.warning("auto-face 触发已禁用(FACE_FC_ENDPOINT 未设)")
+        log.warning("auto-face 触发已禁用(FACE_FC_ENDPOINT 未设)")
         return
 
     logging.getLogger("face_worker").setLevel(logging.INFO)
@@ -40,28 +49,30 @@ def init_face_trigger(app):
 
     @event.listens_for(File, "after_insert")
     def _on_insert(mapper, connection, target):
-        _mark_dirty()
+        _mark_dirty(target)
 
     @event.listens_for(File, "after_delete")
     def _on_delete(mapper, connection, target):
-        _mark_dirty()
+        _mark_dirty(target)
 
-    @event.listens_for(db.session, "after_commit")
+    @event.listens_for(database.SessionLocal, "after_commit")
     def _on_commit(session):
         if session.info.pop(_DIRTY_KEY, False):
-            _trigger(app)
+            _trigger()
 
-    app.logger.info("auto-face 触发已启用(File insert/delete 后异步跑 face_worker)")
+    global _enabled
+    _enabled = True
+    log.info("auto-face 触发已启用(File insert/delete 后异步跑 face_worker,范围 %s)", auto_kind())
 
 
-def _mark_dirty():
+def _mark_dirty(target):
     try:
-        db.session.info[_DIRTY_KEY] = True
+        object_session(target).info[_DIRTY_KEY] = True
     except Exception:
         pass
 
 
-def _trigger(app):
+def _trigger():
     global _running, _dirty
     with _lock:
         if _running:
@@ -71,20 +82,20 @@ def _trigger(app):
         _running = True
 
     threading.Thread(
-        target=_worker_loop, args=(app,), daemon=True, name="face-auto",
+        target=_worker_loop, daemon=True, name="face-auto",
     ).start()
 
 
-def _worker_loop(app):
+def _worker_loop():
     global _running, _dirty
-    from scripts.face_worker import run_in_context
+    from scripts.face_worker import run_in_session
 
     log.info("auto-face worker 启动")
     try:
         while True:
             try:
-                with app.app_context():
-                    run_in_context(limit=None, dry_run=False, workers=16)
+                with database.session() as db:
+                    run_in_session(db, limit=None, dry_run=False, workers=16, kind=auto_kind())
             except Exception:
                 log.exception("auto-face worker 崩溃,继续看 dirty")
             with _lock:

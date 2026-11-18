@@ -1,32 +1,33 @@
-"""
-File modification request models for LockCloud
-Handles edit/delete requests from non-owners
-"""
+"""修改申请：不是上传者想改、删文件或整个活动目录时，发给上传者处理。"""
 from datetime import datetime
-from extensions import db
+
+import sqlalchemy as sa
+from sqlalchemy.orm import backref, relationship
+
+from database import Base
 
 
-class FileRequest(db.Model):
+class FileRequest(Base):
     """Model for file modification/deletion requests"""
     __tablename__ = 'file_requests'
     
-    id = db.Column(db.Integer, primary_key=True)
+    id = sa.Column(sa.Integer, primary_key=True)
     # file_id is nullable for directory requests
-    file_id = db.Column(db.Integer, db.ForeignKey('files.id', ondelete='CASCADE'), nullable=True)
-    requester_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    owner_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    file_id = sa.Column(sa.Integer, sa.ForeignKey('files.id', ondelete='CASCADE'), nullable=True)
+    requester_id = sa.Column(sa.Integer, sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    owner_id = sa.Column(sa.Integer, sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     
     # Request type: 'edit', 'delete', or 'directory_edit'
-    request_type = db.Column(db.String(20), nullable=False)
+    request_type = sa.Column(sa.String(20), nullable=False)
     
     # Status: 'pending', 'approved', 'rejected'
-    status = db.Column(db.String(20), default='pending', nullable=False)
+    status = sa.Column(sa.String(20), default='pending', nullable=False)
     
     # For edit requests: JSON of proposed changes
-    proposed_changes = db.Column(db.JSON, nullable=True)
+    proposed_changes = sa.Column(sa.JSON, nullable=True)
     
     # For directory requests: store directory info
-    directory_info = db.Column(db.JSON, nullable=True)
+    directory_info = sa.Column(sa.JSON, nullable=True)
     # directory_info format: {
     #   "activity_date": "2025-03-15",
     #   "activity_name": "周末团建",
@@ -34,22 +35,22 @@ class FileRequest(db.Model):
     # }
     
     # Optional message from requester
-    message = db.Column(db.Text, nullable=True)
+    message = sa.Column(sa.Text, nullable=True)
     
     # Response message from owner
-    response_message = db.Column(db.Text, nullable=True)
+    response_message = sa.Column(sa.Text, nullable=True)
     
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = sa.Column(sa.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = sa.Column(sa.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
     # Relationships
-    file = db.relationship('File', backref=db.backref('requests', lazy='dynamic', cascade='all, delete-orphan'))
-    requester = db.relationship('User', foreign_keys=[requester_id], backref='sent_requests')
-    owner = db.relationship('User', foreign_keys=[owner_id], backref='received_requests')
+    file = relationship('File', backref=backref('requests', lazy='dynamic', cascade='all, delete-orphan'))
+    requester = relationship('User', foreign_keys=[requester_id], backref='sent_requests')
+    owner = relationship('User', foreign_keys=[owner_id], backref='received_requests')
     
     __table_args__ = (
-        db.Index('idx_requests_owner_status', 'owner_id', 'status'),
-        db.Index('idx_requests_requester', 'requester_id'),
+        sa.Index('idx_requests_owner_status', 'owner_id', 'status'),
+        sa.Index('idx_requests_requester', 'requester_id'),
     )
     
     def to_dict(self, include_file=False, include_users=False):

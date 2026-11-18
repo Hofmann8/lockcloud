@@ -50,8 +50,7 @@ import numpy as np  # noqa: E402
 import sqlite_vec  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
-from app import create_app  # noqa: E402
-from extensions import db  # noqa: E402
+import database  # noqa: E402
 
 
 DEFAULT_THRESHOLD = 0.55  # cosine similarity 下限;低于此值不算同人。
@@ -68,7 +67,7 @@ DEFAULT_MIN_BBOX_SIDE = 60         # 短边 >= 60 px(ArcFace 112×112 输入,60p
 log = logging.getLogger("cluster_faces")
 
 
-def _update_face_person_ids(assignments):
+def _update_face_person_ids(db, assignments):
     """Row-by-row UPDATE for sqlite-vec vec0 tables.
 
     sqlite-vec 0.1.x 的 vec0 虚表不能执行多行 UPDATE,例如
@@ -81,7 +80,7 @@ def _update_face_person_ids(assignments):
     stmt = text(
         "UPDATE faces SET person_id = :person_id WHERE face_id = :face_id"
     )
-    db.session.execute(stmt, assignments)
+    db.execute(stmt, assignments)
     return len(assignments)
 
 
@@ -93,7 +92,7 @@ def setup_logging(verbose):
     )
 
 
-def load_faces(min_conf_bp, min_bbox_side):
+def load_faces(db, min_conf_bp, min_bbox_side):
     """返回 (face_ids, embeddings, areas, confs, n_filtered_out)。
     只载入"质量达标"的脸(参与聚类的)。被过滤掉的脸留 person_id=0 不动。
 
@@ -103,14 +102,17 @@ def load_faces(min_conf_bp, min_bbox_side):
       >0 = persons.id
     这里 SQL 过滤掉 -1。
     """
-    rows = db.session.execute(
+    rows = db.execute(
         text(
-            "SELECT face_id, embedding, bbox_w, bbox_h, confidence_bp "
+            "SELECT face_id, embedding, bbox_w, bbox_h, confidence_bp, file_id "
             "FROM faces WHERE person_id != -1 ORDER BY face_id"
         )
     ).all()
     if not rows:
         return None
+    # 回收站里的文件:脸照常参与聚类(恢复后身份还在),但不拿来当代表脸 ——
+    # 选代表脸只看 areas,这里把它们的面积记成 0,整个 cluster 都在回收站里时才会轮到
+    trashed = {int(r[0]) for r in db.execute(text("SELECT id FROM files WHERE deleted_at IS NOT NULL")).all()}
     total = len(rows)
     face_ids_list, emb_list, areas_list, confs_list = [], [], [], []
     skipped = 0
@@ -121,7 +123,7 @@ def load_faces(min_conf_bp, min_bbox_side):
             continue
         face_ids_list.append(int(r[0]))
         emb_list.append(np.frombuffer(r[1], dtype=np.float32, count=512))
-        areas_list.append(bw * bh)
+        areas_list.append(0 if int(r[5]) in trashed else bw * bh)
         confs_list.append(conf)
     n = len(face_ids_list)
     log.info("loaded %d faces (%d skipped by quality: conf<%d bp 或 min_side<%dpx)",
@@ -178,9 +180,9 @@ def cluster_dbscan(embeddings, threshold, min_samples):
     eps = 1.0 - threshold
     log.info("[dbscan] N=%d eps=%.3f (cos_sim > %.3f) min_samples=%d",
              len(embeddings), eps, threshold, min_samples)
-    db = DBSCAN(eps=eps, min_samples=min_samples, metric="cosine",
-                algorithm="brute", n_jobs=-1)
-    labels = db.fit_predict(embeddings)
+    model = DBSCAN(eps=eps, min_samples=min_samples, metric="cosine",
+                   algorithm="brute", n_jobs=-1)
+    labels = model.fit_predict(embeddings)
     n_noise = int((labels == -1).sum())
     n_clusters = int(labels.max() + 1) if labels.max() >= 0 else 0
     log.info("DBSCAN: %d clusters + %d noise points", n_clusters, n_noise)
@@ -217,19 +219,19 @@ def summarize(labels, face_ids, areas, confs):
                  rank, label, sizes[label], cover_face_id, score)
 
 
-def reset_person_ids():
+def reset_person_ids(db):
     log.warning("--reset:清空所有 face.person_id 并删 persons 表内容")
-    rows = db.session.execute(text("SELECT face_id FROM faces")).all()
-    n = _update_face_person_ids([
+    rows = db.execute(text("SELECT face_id FROM faces")).all()
+    n = _update_face_person_ids(db, [
         {"person_id": 0, "face_id": int(r[0])}
         for r in rows
     ])
-    db.session.execute(text("DELETE FROM persons"))
-    db.session.commit()
+    db.execute(text("DELETE FROM persons"))
+    db.commit()
     log.info("reset done: %d faces set person_id=0, persons cleared", n)
 
 
-def write_clusters(labels, face_ids, areas, confs):
+def write_clusters(db, labels, face_ids, areas, confs):
     """聚类结果落库 —— **现在 persons 表退化成纯 cluster 状态,身份信息在 real_people**。
 
     所以这里逻辑回归"简单的 INSERT":
@@ -263,13 +265,13 @@ def write_clusters(labels, face_ids, areas, confs):
 
     # 先 DELETE 旧 persons(reset 后已经空,日常重跑会清掉上次的)。
     # 这一刀让 persons 永远只反映最新一次聚类的状态。
-    db.session.execute(text("DELETE FROM persons"))
+    db.execute(text("DELETE FROM persons"))
 
     person_id_by_label = {}
     for label, mem_face_ids in members.items():
         idxs = np.array(member_idxs[label], dtype=np.int64)
         cover_face_id, _ = pick_cover(face_ids, areas, confs, idxs)
-        res = db.session.execute(
+        res = db.execute(
             text(
                 "INSERT INTO persons (face_count, cover_face_id, "
                 "                     created_at, updated_at) "
@@ -288,9 +290,9 @@ def write_clusters(labels, face_ids, areas, confs):
         )
     for fid in noise_face_ids:
         assignments.append({"person_id": 0, "face_id": fid})
-    _update_face_person_ids(assignments)
+    _update_face_person_ids(db, assignments)
 
-    db.session.commit()
+    db.commit()
     log.info("clusters written")
 
 
@@ -310,7 +312,7 @@ def _iou(a, b):
     return inter / union if union > 0 else 0.0
 
 
-def reconcile_real_people(iou_threshold=0.5):
+def reconcile_real_people(db, iou_threshold=0.5):
     """write_clusters 之后把 real_people.anchor → 新 cluster 链接补回来。
 
     流程:
@@ -324,76 +326,65 @@ def reconcile_real_people(iou_threshold=0.5):
 
     安全:全用 SELECT/UPDATE,不动 faces 表。
     """
-    rows = db.session.execute(
-        text(
-            "SELECT id, anchor_file_id, anchor_bbox_x, anchor_bbox_y, "
-            "       anchor_bbox_w, anchor_bbox_h "
-            "FROM real_people WHERE anchor_file_id IS NOT NULL"
-        )
-    ).all()
-    if not rows:
+    # 锚点有两种（见 services/person_anchors.py）:
+    #   主锚点   real_people.anchor_*      命名 / 换头像时定的那张脸
+    #   附加锚点 real_people_anchors       合并进来的 cluster 的代表脸;没有它,合并撑不过这一次重新聚类
+    # 一个真人可以链多个 cluster(合并过的);一个 cluster 只能归一个真人。
+    from services import person_anchors
+
+    person_anchors.ensure_schema(db)
+    anchors = person_anchors.all_anchors(db)
+    if not anchors:
         log.info("reconcile: real_people 表无 anchor,跳过")
         return
 
-    log.info("reconcile: 处理 %d 个 real_people anchor", len(rows))
+    log.info("reconcile: 处理 %d 个 anchor", len(anchors))
 
-    # 候选 (iou, real_id, winner_cluster_pid)
+    # 候选 (iou, 是否主锚点, real_id, cluster_pid, face_id, 是否置顶头像)
     candidates = []
     miss = 0
-    for r in rows:
-        real_id = int(r[0])
-        file_id = int(r[1])
-        anchor_bbox = (int(r[2]), int(r[3]), int(r[4]), int(r[5]))
-
-        face_rows = db.session.execute(
-            text(
-                "SELECT person_id, bbox_x, bbox_y, bbox_w, bbox_h "
-                "FROM faces WHERE file_id = :fid AND person_id > 0"
-            ),
-            {"fid": file_id},
-        ).all()
-
-        best_iou = 0.0
-        best_pid = None
-        for fr in face_rows:
-            pid = int(fr[0])
-            bbox = (int(fr[1]), int(fr[2]), int(fr[3]), int(fr[4]))
-            iou = _iou(anchor_bbox, bbox)
-            if iou > best_iou:
-                best_iou = iou
-                best_pid = pid
-
-        if best_pid and best_iou >= iou_threshold:
-            candidates.append((best_iou, real_id, best_pid))
+    for a in anchors:
+        hit = person_anchors.match_face(db, a['file_id'], a['frame_id'], a['bbox'], iou_threshold)
+        if hit:
+            face_id, pid, score = hit
+            candidates.append((score, a['primary'], a['real_id'], pid, face_id, a['pinned']))
         else:
             miss += 1
             log.warning(
-                "reconcile: real_people.id=%d anchor file=%d 没匹配上任何 face "
-                "(best_iou=%.2f),real_person_id 留空",
-                real_id, file_id, best_iou,
+                "reconcile: real_people.id=%d 的%s锚点 file=%d 没匹配上任何 face,这个锚点这次不起作用",
+                a['real_id'], "主" if a['primary'] else "附加", a['file_id'],
             )
 
-    # 贪心:IoU 大的先,每个 cluster 只能被一个 real_people 占
-    candidates.sort(key=lambda x: (-x[0], x[1], x[2]))
-    used_pids = set()
-    linked = 0
-    for iou, real_id, pid in candidates:
-        if pid in used_pids:
+    # 贪心:IoU 大的先,一样大时主锚点优先;每个 cluster 只能被一个 real_people 占
+    candidates.sort(key=lambda x: (-x[0], not x[1], x[2], x[3]))
+    owner_of = {}
+    linked = lost = 0
+    for score, primary, real_id, pid, face_id, pinned in candidates:
+        owner = owner_of.get(pid)
+        if owner is None:
+            owner_of[pid] = real_id
+            db.execute(
+                text("UPDATE persons SET real_person_id = :rid WHERE id = :pid"),
+                {"rid": real_id, "pid": pid},
+            )
+            linked += 1
+        elif owner != real_id:
+            lost += 1
             log.warning(
                 "reconcile: cluster %d 被多个 real_people 抢,real_people.id=%d "
-                "(iou=%.2f) 让位,留空",
-                pid, real_id, iou,
+                "(iou=%.2f) 让位",
+                pid, real_id, score,
             )
             continue
-        used_pids.add(pid)
-        db.session.execute(
-            text("UPDATE persons SET real_person_id = :rid WHERE id = :pid"),
-            {"rid": real_id, "pid": pid},
-        )
-        linked += 1
-    db.session.commit()
-    log.info("reconcile: %d 个 real_people 成功链接 cluster, %d 个失败",
-             linked, miss + (len(candidates) - linked))
+        # 用户换过头像(置顶):聚类按"最大最清晰"重选了代表脸,这里换回用户选的那张
+        if primary and pinned and owner_of[pid] == real_id:
+            db.execute(
+                text("UPDATE persons SET cover_face_id = :fc WHERE id = :pid"),
+                {"fc": face_id, "pid": pid},
+            )
+    db.commit()
+    log.info("reconcile: 链上 %d 个 cluster(%d 个真人), %d 个锚点没匹配上, %d 个被别人占了",
+             linked, len(set(owner_of.values())), miss, lost)
 
 
 def main():
@@ -419,51 +410,25 @@ def main():
         log.error("threshold 必须在 (0,1) 之间")
         return 2
 
-    app = create_app()
-    with app.app_context():
-        if args.reset and not args.dry_run:
-            reset_person_ids()
-
-        loaded = load_faces(args.min_conf_bp, args.min_bbox_side)
-        if loaded is None:
-            log.info("faces 表空或全被质量过滤掉了")
-            return 0
-        face_ids, embeddings, areas, confs, _skipped = loaded
-
-        if args.algo == "dbscan":
-            labels = cluster_dbscan(embeddings, args.threshold, args.min_samples)
-        else:
-            labels = cluster_single_linkage(embeddings, args.threshold)
-
-        summarize(labels, face_ids, areas, confs)
-
-        if args.dry_run:
-            log.info("--dry-run,不写库")
-            return 0
-
-        write_clusters(labels, face_ids, areas, confs)
-        # 写完 cluster 立刻把 real_people 链接补上,身份不会丢
-        reconcile_real_people()
-        # 自动 mirror / prune,见 run_clustering 里同步说明
-        try:
-            from scripts.mirror_cover_files import run_in_context as _mirror
-            _mirror()
-        except Exception:
-            log.exception("post-cluster mirror_cover 失败(非致命)")
-
+    with database.session() as db:
+        run_clustering(
+            db, threshold=args.threshold, algo=args.algo, min_samples=args.min_samples,
+            min_conf_bp=args.min_conf_bp, min_bbox_side=args.min_bbox_side,
+            reset=args.reset, dry_run=args.dry_run,
+        )
     return 0
 
 
-def run_clustering(threshold=DEFAULT_THRESHOLD, algo="dbscan", min_samples=3,
+def run_clustering(db, threshold=DEFAULT_THRESHOLD, algo="dbscan", min_samples=3,
                    min_conf_bp=DEFAULT_MIN_CONFIDENCE_BP,
                    min_bbox_side=DEFAULT_MIN_BBOX_SIDE,
                    reset=False, dry_run=False):
-    """供 Flask CLI / scheduler 调用的纯函数入口。假定已经在 app context 里。
-    返 (n_clusters, n_noise) 或 None(数据空)。
+    """聚类入口(命令行和 scheduler 04:00 的任务都走这里)。
+    返 (n_clusters, n_noise) 或 None(数据空 / dry-run)。
     """
     if reset and not dry_run:
-        reset_person_ids()
-    loaded = load_faces(min_conf_bp, min_bbox_side)
+        reset_person_ids(db)
+    loaded = load_faces(db, min_conf_bp, min_bbox_side)
     if loaded is None:
         log.info("faces 表空或全被质量过滤掉了")
         return None
@@ -476,47 +441,12 @@ def run_clustering(threshold=DEFAULT_THRESHOLD, algo="dbscan", min_samples=3,
     if dry_run:
         log.info("--dry-run,不写库")
         return None
-    write_clusters(labels, face_ids, areas, confs)
+    write_clusters(db, labels, face_ids, areas, confs)
     # 写完 cluster 立刻把 real_people 链接补上,身份不会丢
-    reconcile_real_people()
-    # cluster 改了 cover_face_id → 自动 mirror 新 cover + prune 旧 cover,
-    # 否则前端缩略图会拿不到从没 mirror 的文件;cron 04:00 跑也会带上这步
-    try:
-        from scripts.mirror_cover_files import run_in_context as _mirror
-        _mirror()
-    except Exception:
-        log.exception("post-cluster mirror_cover 失败(非致命,下次 cluster 还会再试)")
+    reconcile_real_people(db)
     n_clusters = int(labels.max() + 1) if (labels >= 0).any() else 0
     n_noise = int((labels == -1).sum())
     return n_clusters, n_noise
-
-
-def register_commands(app):
-    """注册 `flask cluster-faces` CLI。给 scheduler 调用,也能手动跑。"""
-    import click
-    from flask.cli import with_appcontext
-
-    @click.command("cluster-faces")
-    @click.option("--threshold", type=float, default=DEFAULT_THRESHOLD)
-    @click.option("--algo", type=click.Choice(["dbscan", "single"]), default="dbscan")
-    @click.option("--min-samples", type=int, default=3)
-    @click.option("--min-conf-bp", type=int, default=DEFAULT_MIN_CONFIDENCE_BP)
-    @click.option("--min-bbox-side", type=int, default=DEFAULT_MIN_BBOX_SIDE)
-    @click.option("--reset", is_flag=True)
-    @click.option("--dry-run", is_flag=True)
-    @click.option("--verbose", is_flag=True)
-    @with_appcontext
-    def cluster_faces_cli(threshold, algo, min_samples, min_conf_bp, min_bbox_side,
-                          reset, dry_run, verbose):
-        """DBSCAN 重整 person 簇 —— scheduler 凌晨 4 点自动跑,也可手动调"""
-        setup_logging(verbose)
-        run_clustering(
-            threshold=threshold, algo=algo, min_samples=min_samples,
-            min_conf_bp=min_conf_bp, min_bbox_side=min_bbox_side,
-            reset=reset, dry_run=dry_run,
-        )
-
-    app.cli.add_command(cluster_faces_cli)
 
 
 if __name__ == "__main__":

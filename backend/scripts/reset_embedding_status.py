@@ -2,7 +2,7 @@
 重置 files.embedding_status 状态 —— 让 embed_worker 重新捡起来。
 
 常见场景:
-  - 之前因为 5MB 上限被标 skipped_too_large 的图,现在 worker 改走缤纷云实时变换,要重新跑
+  - 之前因为 5MB 上限被标 skipped_too_large 的图,现在 worker 改走 OSS 实时图片处理,要重新跑
   - 之前 failed 的想再重试一遍
   - 手动想清掉某种状态重新分类
 
@@ -22,8 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import text  # noqa: E402
 
-from app import create_app  # noqa: E402
-from extensions import db  # noqa: E402
+import database  # noqa: E402
 
 
 ALLOWED_FROM = {"failed", "skipped_too_large", "skipped_unsupported", "ok"}
@@ -41,12 +40,11 @@ def main():
             print(f"[错误] 不允许重置状态 {s!r}(允许: {sorted(ALLOWED_FROM)})")
             return 2
 
-    app = create_app()
-    with app.app_context():
+    with database.session() as db:
         # SQLAlchemy 对 IN + tuple 的处理在不同版本有差异,用占位符安全拼
         placeholders = ",".join(f":s{i}" for i in range(len(args.statuses)))
         params = {f"s{i}": s for i, s in enumerate(args.statuses)}
-        rows = db.session.execute(
+        rows = db.execute(
             text(
                 f"SELECT embedding_status, COUNT(*) AS n FROM files "
                 f"WHERE embedding_status IN ({placeholders}) "
@@ -71,14 +69,14 @@ def main():
                 print("已取消")
                 return 0
 
-        result = db.session.execute(
+        result = db.execute(
             text(
                 f"UPDATE files SET embedding_status='pending' "
                 f"WHERE embedding_status IN ({placeholders})"
             ),
             params,
         )
-        db.session.commit()
+        db.commit()
         print(f"已更新 {result.rowcount} 行 -> pending")
         return 0
 

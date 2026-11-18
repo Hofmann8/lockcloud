@@ -1,0 +1,3 @@
+-r requirements.txt
+# 契约测试：pytest + FastAPI 的 TestClient（要 httpx，已在 requirements.txt）
+pytest==8.4.2

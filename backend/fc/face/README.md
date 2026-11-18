@@ -57,7 +57,9 @@ curl -X POST http://localhost:9000/invoke `
 }
 ```
 
-## 接下来(阶段 3)
-- ACR(阿里云容器镜像服务,个人版免费)推镜像
-- FC 控制台建 Custom Container 函数,挂 HTTP 触发器
-- 拿到 endpoint URL 写回 backend 的 `.env`,worker 调起来
+## 部署
+
+- 镜像：ACR 个人版（杭州）`crpi-erg46jo9l599ryzm.cn-hangzhou.personal.cr.aliyuncs.com/lock-service/lockcloud-face`，私有仓库。2026-09 前在 `fanggroup_linkai/lockai-face`，已搬过来。
+- 函数：FC 3.0 杭州，函数名 `lockai-face`（名字是历史遗留，实际给 LockCloud 用），HTTP 触发器，地址写在 backend `.env` 的 `FACE_FC_ENDPOINT`。
+- 推新版本时换标签（v2、v3…），不要覆盖旧标签；build 必须带 `--provenance=false`。
+- 验证：`curl <FACE_FC_ENDPOINT>/healthz` 返回 `{"ok": true, ...}`。

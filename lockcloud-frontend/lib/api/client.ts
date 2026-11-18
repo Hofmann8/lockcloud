@@ -1,128 +1,104 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { ApiError } from '@/types';
-import { showToast, toastMessages } from '@/lib/utils/toast';
-import { getApiBaseUrl } from '@/lib/config/api';
+import axios, { type AxiosError, type AxiosRequestConfig } from 'axios';
 
-// Allow per-request opt-out of the global toast. Caller still gets the rejection
-// and is expected to handle it (e.g. SSO config has a fallback URL).
-declare module 'axios' {
-  export interface AxiosRequestConfig {
-    silentError?: boolean;
+const DEFAULT_DEV_API_URL = 'http://localhost:5000';
+const DEFAULT_PROD_API_URL = 'https://cloud.funk-and.love';
+
+export function apiBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  const base = configured || (process.env.NODE_ENV === 'production' ? DEFAULT_PROD_API_URL : DEFAULT_DEV_API_URL);
+  return base.replace(/\/+$/, '');
+}
+
+export const TOKEN_KEY = 'lockcloud_token';
+export const USER_KEY = 'lockcloud_user';
+
+/** 后端统一的错误：{error: {code, message, ...}}。message 是中文，直接给人看 */
+export class ApiError extends Error {
+  code: string;
+  status: number;
+  details: Record<string, unknown>;
+
+  constructor(code: string, message: string, status = 0, details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
   }
 }
 
-// Create axios instance with base configuration
-const apiClient = axios.create({
-  baseURL: getApiBaseUrl(),
-  timeout: 0, // No timeout - allow infinite wait for AI responses
-  headers: {
-    'Content-Type': 'application/json',
-  },
+export function errorMessage(error: unknown, fallback = '出现问题，请重试'): string {
+  if (error instanceof ApiError) return error.message || fallback;
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
+export const api = axios.create({
+  baseURL: apiBaseUrl(),
+  timeout: 0,
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Module-level guard so parallel 401s don't each fire toast + redirect.
-// Reset on next page load (full nav clears the module).
-let isHandlingAuthFailure = false;
-
-// Request interceptor to add JWT token
-apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    // Get token from localStorage
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('lockcloud_token');
-      if (token && config.headers) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) config.headers.Authorization = `Bearer ${token}`;
   }
+  return config;
+});
+
+let redirecting = false;
+
+/** 登录失效：清掉本地登录态，带着当前地址去登录页 */
+export function goLogin() {
+  if (typeof window === 'undefined' || redirecting) return;
+  redirecting = true;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem('lockcloud-auth');
+  const here = window.location.pathname + window.location.search;
+  const next = here.startsWith('/auth') ? '' : `?next=${encodeURIComponent(here)}`;
+  window.location.replace(`/auth/login${next}`);
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<{ error?: { code?: string; message?: string } } & Record<string, unknown>>) => {
+    if (axios.isCancel(error)) return Promise.reject(error);
+    const res = error.response;
+    if (!res) {
+      return Promise.reject(new ApiError('NETWORK_ERROR', '无法连接服务器，请检查网络', 0));
+    }
+    const body = res.data?.error ?? (res.data as { code?: string; message?: string } | undefined) ?? {};
+    const code = body.code || `HTTP_${res.status}`;
+    if (res.status === 401 && !error.config?.url?.includes('/auth/sso/')) {
+      goLogin();
+    }
+    const fallback =
+      res.status === 403 ? '没有权限' :
+      res.status === 404 ? '内容不存在或已被删除' :
+      res.status === 429 ? '操作过于频繁，请稍后再试' :
+      res.status >= 500 ? '服务器错误，请稍后再试' : '请求失败';
+    return Promise.reject(new ApiError(code, body.message || fallback, res.status, body as Record<string, unknown>));
+  },
 );
 
-// Response interceptor for error handling
-apiClient.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  (error: AxiosError<ApiError>) => {
-    const silentError = error.config?.silentError === true;
+export async function get<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
+  return (await api.get<T>(url, config)).data;
+}
 
-    // Handle different error scenarios
-    if (error.response) {
-      const { status, data } = error.response;
+export async function post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  return (await api.post<T>(url, data, config)).data;
+}
 
-      // Handle 401 Unauthorized - token expired or invalid.
-      // Guard against parallel requests all firing toast + redirect.
-      // 401 cleanup always runs even if silent (session integrity), but toast may be suppressed.
-      if (status === 401) {
-        if (!isHandlingAuthFailure) {
-          isHandlingAuthFailure = true;
-          if (!silentError) {
-            showToast.error(toastMessages.sessionExpired, { id: 'session-expired' });
-          }
+export async function patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  return (await api.patch<T>(url, data, config)).data;
+}
 
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('lockcloud_token');
-            localStorage.removeItem('lockcloud_user');
-            // Also clear zustand persisted auth so stale token doesn't get re-hydrated.
-            localStorage.removeItem('lockcloud-auth');
+export async function put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+  return (await api.put<T>(url, data, config)).data;
+}
 
-            setTimeout(() => {
-              window.location.href = '/auth/login';
-            }, 1000);
-          }
-        }
-
-        return Promise.reject({
-          code: 'AUTH_EXPIRED',
-          message: toastMessages.sessionExpired,
-          details: {},
-        });
-      }
-
-      // Handle 403 Forbidden - don't redirect, let the page handle it
-      if (status === 403 && !silentError) {
-        showToast.error(toastMessages.permissionDenied, { id: 'permission-denied' });
-      }
-
-      // Handle network timeout
-      if ((status === 408 || error.code === 'ECONNABORTED') && !silentError) {
-        showToast.error('请求超时，请重试', { id: 'request-timeout' });
-      }
-
-      // 后端约定 body 是 { error: { code, message, ...其他字段 } };
-      // 老代码退化读 data.* 不到位,这里两层都看一下,优先 data.error.*
-      const errBody = (data as { error?: { code?: string; message?: string; details?: unknown } } | null)?.error
-        || (data as { code?: string; message?: string; details?: unknown } | null)
-        || {};
-      return Promise.reject({
-        code: errBody.code || 'UNKNOWN_ERROR',
-        message: errBody.message || '发生未知错误',
-        // details 留 entire body,这样像 NAME_CONFLICT 里 existing 这种附加字段能透出
-        details: errBody,
-      });
-    } else if (error.request) {
-      // Network error - no response received. Dedupe so parallel failures don't spam.
-      if (!silentError) {
-        showToast.error(toastMessages.networkError, { id: 'network-error' });
-      }
-
-      return Promise.reject({
-        code: 'NETWORK_ERROR',
-        message: toastMessages.networkError,
-        details: {},
-      });
-    } else {
-      // Something else happened
-      return Promise.reject({
-        code: 'REQUEST_ERROR',
-        message: error.message || '请求失败',
-        details: {},
-      });
-    }
-  }
-);
-
-export default apiClient;
+export async function del<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
+  return (await api.delete<T>(url, config)).data;
+}

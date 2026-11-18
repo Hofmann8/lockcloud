@@ -1,49 +1,44 @@
-# Gunicorn 配置文件
-import multiprocessing
+"""
+Gunicorn 配置（FastAPI / ASGI）。
+
+启动：gunicorn -c gunicorn.conf.py asgi:app
+（旧命令 wsgi:app 也能用，见 wsgi.py）
+"""
 import os
 
-# 服务器绑定
-bind = "0.0.0.0:5001"
+# 只听本机，由 nginx 反代
+bind = os.environ.get("GUNICORN_BIND", "127.0.0.1:5001")
 
-# Worker 配置
-workers = 2
-worker_class = "sync"  # 同步 worker
+# 限流计数、定时任务、embedding / 人脸的待处理队列都在进程内存里，保持 1 个 worker。
+# 普通接口是同步函数，在 worker 的线程池里并发执行。
+workers = int(os.environ.get("GUNICORN_WORKERS", 1))
+worker_class = "uvicorn_worker.UvicornWorker"
 
-# Timeout 配置 - 关键！
-# AI 请求最多需要 300 秒，所以设置为 360 秒（6 分钟）留出缓冲
+# AI 请求最多需要 300 秒，留出缓冲
 timeout = 360
 graceful_timeout = 30
 keepalive = 5
 
-# 日志配置(目录不存在就建,部署时 logs/ 不进包)
+# 日志(目录不存在就建,部署时 logs/ 不进包)
 _LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(_LOG_DIR, exist_ok=True)
 accesslog = os.path.join(_LOG_DIR, "gunicorn_access.log")
 errorlog = os.path.join(_LOG_DIR, "gunicorn_error.log")
-loglevel = "debug"  # 改为 debug 级别以捕获更多信息
-access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
+loglevel = os.environ.get("GUNICORN_LOG_LEVEL", "info")
 
-# 日志处理器配置
+
 def on_starting(server):
-    """服务器启动时的回调"""
     server.log.info("=" * 80)
     server.log.info("LockCloud Backend 正在启动...")
-    server.log.info(f"Workers: {workers}")
-    server.log.info(f"Timeout: {timeout}s")
-    server.log.info(f"日志级别: {loglevel}")
+    server.log.info(f"Bind: {bind}  Workers: {workers}  Timeout: {timeout}s")
     server.log.info("=" * 80)
 
-# 进程命名
-proc_name = "lockcloud-backend"
 
-# 预加载应用（可选，提高性能）
+proc_name = "lockcloud-backend"
 preload_app = False
 
-# Worker 重启配置
-max_requests = 1000  # 处理 1000 个请求后重启 worker，防止内存泄漏
-max_requests_jitter = 50  # 添加随机抖动，避免所有 worker 同时重启
+# 不设 max_requests：worker 定期重启会丢掉进程内的 embedding / 人脸队列和限流计数
 
-# 安全配置
 limit_request_line = 4096
 limit_request_fields = 100
 limit_request_field_size = 8190

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
 Database Backup Script for LockCloud
-Backs up the database and uploads to S3 public bucket
+Backs up the database and uploads to the private OSS bucket (lock-cloud, backups/db/)
 
 Usage:
     python scripts/backup_database.py [--keep-local] [--type full|incremental]
 
 Environment Variables Required:
     - DATABASE_URL: Database connection string
-    - AWS_ACCESS_KEY_ID: S3 access key
-    - AWS_SECRET_ACCESS_KEY: S3 secret key
-    - S3_PUBLIC_BUCKET: Public bucket name (default: funkandlove-cloud-public)
+    - OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET / OSS_BUCKET / OSS_ENDPOINT (OSS_INTERNAL_ENDPOINT 线上填内网)
+
+30 天前的备份由桶的生命周期规则自动删除（backups/ 前缀），脚本不再自己清。
 
 Cron Example (daily at 3 AM):
     0 3 * * * cd /path/to/backend && /path/to/venv/bin/python scripts/backup_database.py >> /var/log/lockcloud_backup.log 2>&1
@@ -22,6 +22,7 @@ import argparse
 import subprocess
 import gzip
 import shutil
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -31,23 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-import boto3
-from botocore.client import Config as BotoConfig
-
-
-def get_s3_client():
-    """Create S3 client"""
-    return boto3.client(
-        's3',
-        endpoint_url=os.environ.get('S3_ENDPOINT', 'https://s3.bitiful.net'),
-        aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
-        region_name=os.environ.get('AWS_REGION', 'us-east-1'),
-        config=BotoConfig(
-            signature_version='s3v4',
-            s3={'addressing_style': 'virtual'}
-        )
-    )
+from services.storage import BACKUP_PREFIX, storage
 
 
 def backup_sqlite(db_path: str, output_dir: Path) -> Path:
@@ -78,8 +63,12 @@ def backup_sqlite(db_path: str, output_dir: Path) -> Path:
     
     print(f"[...] Backing up: {db_file}")
     
-    # Copy database file
-    shutil.copy2(db_file, backup_path)
+    # 库开着 WAL，直接复制文件会漏掉还在 -wal 里的提交；用 SQLite 的备份接口拿一致的快照
+    src = sqlite3.connect(str(db_file))
+    dst = sqlite3.connect(str(backup_path))
+    src.backup(dst)
+    dst.close()
+    src.close()
     
     # Compress
     compressed_path = Path(str(backup_path) + '.gz')
@@ -174,56 +163,18 @@ def backup_mysql(db_url: str, output_dir: Path) -> Path:
     return backup_path
 
 
-def upload_to_s3(file_path: Path, s3_client, bucket: str) -> str:
-    """Upload backup file to S3"""
-    date_folder = datetime.utcnow().strftime('%Y/%m')
-    s3_key = f"backups/database/{date_folder}/{file_path.name}"
-    
-    print(f"[...] Uploading to s3://{bucket}/{s3_key}")
-    
-    s3_client.upload_file(
-        str(file_path),
-        bucket,
-        s3_key,
-        ExtraArgs={
-            'ContentType': 'application/gzip'
-        }
-    )
-    
-    print(f"[OK] Uploaded to S3: {s3_key}")
-    return s3_key
-
-
-def cleanup_old_backups(s3_client, bucket: str, keep_days: int = 30):
-    """Delete backups older than keep_days"""
-    from datetime import timedelta
-    
-    prefix = "backups/database/"
-    cutoff_date = datetime.utcnow() - timedelta(days=keep_days)
-    
-    print(f"[...] Cleaning up backups older than {keep_days} days")
-    
-    paginator = s3_client.get_paginator('list_objects_v2')
-    deleted_count = 0
-    
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        if 'Contents' not in page:
-            continue
-        
-        for obj in page['Contents']:
-            if obj['LastModified'].replace(tzinfo=None) < cutoff_date:
-                s3_client.delete_object(Bucket=bucket, Key=obj['Key'])
-                deleted_count += 1
-                print(f"  Deleted: {obj['Key']}")
-    
-    print(f"[OK] Cleaned up {deleted_count} old backups")
+def upload_backup(file_path: Path) -> str:
+    """传到私有桶 backups/db/{YYYY}/{MM}/ 下"""
+    key = f"{BACKUP_PREFIX}{datetime.utcnow().strftime('%Y/%m')}/{file_path.name}"
+    print(f"[...] Uploading to oss://{storage.bucket_name}/{key}")
+    storage.put_file(key, str(file_path), content_type='application/gzip')
+    print(f"[OK] Uploaded: {key}")
+    return key
 
 
 def main():
     parser = argparse.ArgumentParser(description='Backup LockCloud database to S3')
     parser.add_argument('--keep-local', action='store_true', help='Keep local backup file after upload')
-    parser.add_argument('--keep-days', type=int, default=30, help='Days to keep old backups (default: 30)')
-    parser.add_argument('--no-cleanup', action='store_true', help='Skip cleanup of old backups')
     args = parser.parse_args()
     
     print("=" * 60)
@@ -263,15 +214,7 @@ def main():
             print(f"[ERROR] Unsupported database type: {db_url.split(':')[0]}")
             sys.exit(1)
         
-        # Upload to S3
-        s3_client = get_s3_client()
-        bucket = os.environ.get('S3_PUBLIC_BUCKET', 'funkandlove-cloud-public')
-        
-        s3_key = upload_to_s3(backup_path, s3_client, bucket)
-        
-        # Cleanup old backups
-        if not args.no_cleanup:
-            cleanup_old_backups(s3_client, bucket, args.keep_days)
+        s3_key = upload_backup(backup_path)
         
         # Remove local file unless --keep-local
         if not args.keep_local:

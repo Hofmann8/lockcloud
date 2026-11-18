@@ -11,7 +11,7 @@
 Why 这样设计:
   - worker 跑 1634 张要 3-4 分钟,期间可能有新上传,不能丢
   - 但不能并发跑多个 worker(SQLite 单写 + API 配额)
-  - subprocess 冷启贵(每次加载 Flask + 客户端 5-10s),in-process 复用便宜
+  - subprocess 冷启贵(每次加载模型 + 客户端 5-10s),in-process 复用便宜
   - 改 routes 不如挂模型事件 —— routes 有十几处 File 增删,
     sprinkle 触发点容易漏,SA 事件保证覆盖全部
 
@@ -21,11 +21,13 @@ Caveat:
     冲突。本项目当前 1-2 gunicorn worker,可接受。规模上去要换文件锁。
 """
 import logging
+import os
 import threading
 
 from sqlalchemy import event
+from sqlalchemy.orm import object_session
 
-from extensions import db
+import database
 from files.models import File
 
 log = logging.getLogger(__name__)
@@ -35,47 +37,68 @@ _DIRTY_KEY = "_embed_files_dirty"
 _lock = threading.Lock()
 _running = False
 _dirty = False
+_enabled = False
 
 
-def init_embed_trigger(app):
-    """注册 SA 事件钩子;app factory 里调用一次。"""
+def auto_kind() -> str:
+    """自动触发跑哪些:图片和视频抽帧都跑;视频只挑 LockAI 分析过的(见 embed_worker.fetch_pending_videos)。"""
+    return "all"
+
+
+def kick_videos():
+    """LockAI 分析完成、或分析过的视频重新抽了帧:排一轮帧 embedding。"""
+    if _enabled:
+        _trigger()
+
+
+def kick_images():
+    """媒体 FC 回调后排一轮图片:超过 20 MB 的图要等 FC 存好缩小版才能算 embedding
+    (scripts/embed_worker.py 的 fetch_pending 在那之前会跳过它)。"""
+    if _enabled:
+        _trigger()
+
+
+def init_embed_trigger():
+    """注册 SA 事件钩子;app.py 的 lifespan 里调用一次。"""
     try:
         # 启动时 smoke 客户端配置,避免每次上传都喷 init error
         from services.embedding_service import EmbeddingClient
         EmbeddingClient.from_env()
     except Exception as e:
-        app.logger.warning("auto-embed 触发已禁用(client 初始化失败): %s", e)
+        log.warning("auto-embed 触发已禁用(client 初始化失败): %s", e)
         return
 
-    # worker 模块的日志接到 root,Flask logging 体系才看得见
+    # worker 模块的日志接到 root,app.log 里才看得见
     logging.getLogger("embed_worker").setLevel(logging.INFO)
     logging.getLogger(__name__).setLevel(logging.INFO)
 
     @event.listens_for(File, "after_insert")
     def _on_insert(mapper, connection, target):
-        _mark_dirty()
+        _mark_dirty(target)
 
     @event.listens_for(File, "after_delete")
     def _on_delete(mapper, connection, target):
-        _mark_dirty()
+        _mark_dirty(target)
 
-    @event.listens_for(db.session, "after_commit")
+    @event.listens_for(database.SessionLocal, "after_commit")
     def _on_commit(session):
         if session.info.pop(_DIRTY_KEY, False):
-            _trigger(app)
+            _trigger()
 
-    app.logger.info("auto-embed 触发已启用(File insert/delete 后异步跑 worker)")
+    global _enabled
+    _enabled = True
+    log.info("auto-embed 触发已启用(File insert/delete 后异步跑 worker,范围 %s)", auto_kind())
 
 
-def _mark_dirty():
+def _mark_dirty(target):
     try:
-        db.session.info[_DIRTY_KEY] = True
+        object_session(target).info[_DIRTY_KEY] = True
     except Exception:
         # 极少数无 session context 的场景(后台脚本通过 SA 直接操作)兜底
         pass
 
 
-def _trigger(app):
+def _trigger():
     """启动 worker 线程(如果还没跑);已在跑则设 dirty 让其循环。"""
     global _running, _dirty
     with _lock:
@@ -86,21 +109,21 @@ def _trigger(app):
         _running = True
 
     threading.Thread(
-        target=_worker_loop, args=(app,), daemon=True, name="embed-auto",
+        target=_worker_loop, daemon=True, name="embed-auto",
     ).start()
 
 
-def _worker_loop(app):
+def _worker_loop():
     """线程主体:跑 worker → 若 dirty 再跑 → 直到 dirty 清空。"""
     global _running, _dirty
-    from scripts.embed_worker import run_in_context
+    from scripts.embed_worker import run_in_session
 
     log.info("auto-embed worker 启动")
     try:
         while True:
             try:
-                with app.app_context():
-                    run_in_context(limit=None, dry_run=False, workers=16)
+                with database.session() as db:
+                    run_in_session(db, limit=None, dry_run=False, workers=16, kind=auto_kind())
             except Exception:
                 log.exception("auto-embed worker 运行崩溃,继续看 dirty 是否要重跑")
             with _lock:

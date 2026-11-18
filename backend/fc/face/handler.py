@@ -137,7 +137,7 @@ def invoke():
     for f in faces:
         x1, y1, x2, y2 = [int(v) for v in f.bbox]
         # InsightFace 在图像边缘检测的脸,bbox 可能超出图像范围(x1<0 或 y2>h)。
-        # 缤纷云 ?rect= 不接受负坐标,clamp 到 [0, w/h]
+        # 裁剪不接受负坐标,clamp 到 [0, w/h]
         x1c = max(0, min(x1, w - 1))
         y1c = max(0, min(y1, h - 1))
         x2c = max(0, min(x2, w))

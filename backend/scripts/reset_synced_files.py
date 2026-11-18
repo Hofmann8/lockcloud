@@ -21,8 +21,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import text  # noqa: E402
-from app import create_app  # noqa: E402
-from extensions import db  # noqa: E402
+import database  # noqa: E402
 
 
 def main():
@@ -43,15 +42,14 @@ def main():
         where_embed += " AND file_id <= :hi"
         params["hi"] = args.max_id
 
-    app = create_app()
-    with app.app_context():
-        files_n = db.session.execute(
+    with database.session() as db:
+        files_n = db.execute(
             text(f"SELECT COUNT(*) FROM files WHERE {where_files}"), params
         ).scalar()
-        faces_n = db.session.execute(
+        faces_n = db.execute(
             text(f"SELECT COUNT(*) FROM faces WHERE {where_faces}"), params
         ).scalar()
-        embed_n = db.session.execute(
+        embed_n = db.execute(
             text(f"SELECT COUNT(*) FROM image_embeddings WHERE {where_embed}"),
             params,
         ).scalar()
@@ -70,21 +68,21 @@ def main():
             return 0
 
         # 1) 清旧 faces / embeddings(worker 重跑会重写)
-        db.session.execute(
+        db.execute(
             text(f"DELETE FROM faces WHERE {where_faces}"), params
         )
-        db.session.execute(
+        db.execute(
             text(f"DELETE FROM image_embeddings WHERE {where_embed}"), params
         )
         # 2) 状态拉回 pending,trigger / 手动 worker 都会重新认领
-        db.session.execute(
+        db.execute(
             text(
                 f"UPDATE files SET face_status='pending', "
                 f"embedding_status='pending' WHERE {where_files}"
             ),
             params,
         )
-        db.session.commit()
+        db.commit()
         print(f"\n✓ 重置完成。下一步:")
         print(f"  python scripts/embed_worker.py")
         print(f"  python scripts/face_worker.py --workers 16")

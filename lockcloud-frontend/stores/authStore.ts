@@ -1,124 +1,76 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { User } from '@/types';
-import * as authApi from '@/lib/api/auth';
+import { authApi } from '@/lib/api/auth';
+import { ApiError, TOKEN_KEY, USER_KEY } from '@/lib/api/client';
+import type { User } from '@/lib/api/types';
 
 interface AuthState {
   user: User | null;
   token: string | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  
-  // Actions
-  logout: () => void;
-  refreshToken: () => Promise<void>;
-  setUser: (user: User | null) => void;
-  setToken: (token: string | null) => void;
+  /** 首次读本地登录态之前是 false，避免一进来就被踢去登录页 */
+  ready: boolean;
   initialize: () => Promise<void>;
+  signIn: (token: string, user: User) => void;
+  signOut: () => void;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      user: null,
-      token: null,
-      isAuthenticated: false,
-      isLoading: false, // Will be set by initialize
+function readUser(): User | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    if (raw) return JSON.parse(raw) as User;
+    // 旧版前端用 zustand persist 存在 lockcloud-auth 里
+    const legacy = localStorage.getItem('lockcloud-auth');
+    return legacy ? (JSON.parse(legacy).state?.user ?? null) : null;
+  } catch {
+    return null;
+  }
+}
 
-      logout: () => {
-        // Clear localStorage
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('lockcloud_token');
-          localStorage.removeItem('lockcloud_user');
-        }
-        
-        set({
-          user: null,
-          token: null,
-          isAuthenticated: false,
-        });
-      },
+let initializing: Promise<void> | null = null;
 
-      refreshToken: async () => {
-        try {
-          const response = await authApi.refreshToken();
-          
-          // Update token in localStorage
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('lockcloud_token', response.token);
-          }
-          
-          set({
-            user: response.user,
-            token: response.token,
-            isAuthenticated: true,
-          });
-        } catch (error) {
-          // If refresh fails, logout
-          get().logout();
-          throw error;
-        }
-      },
+export const useAuthStore = create<AuthState>()((set, get) => ({
+  user: null,
+  token: null,
+  ready: false,
 
-      setUser: (user: User | null) => {
-        set({ user, isAuthenticated: !!user });
-      },
+  initialize: () => {
+    if (initializing) return initializing;
+    initializing = (async () => {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const cached = readUser();
+      if (!token) {
+        set({ ready: true, token: null, user: null });
+        return;
+      }
+      // 有缓存的用户信息就先放进去，后台再核对一次
+      set({ token, user: cached, ready: !!cached });
+      try {
+        const user = await authApi.me();
+        localStorage.setItem(USER_KEY, JSON.stringify(user));
+        set({ user, ready: true });
+      } catch (error) {
+        // 401 由 client 统一跳登录；网络问题时保留缓存的登录态
+        if (error instanceof ApiError && error.status === 401) get().signOut();
+        set({ ready: true });
+      }
+    })();
+    return initializing;
+  },
 
-      setToken: (token: string | null) => {
-        set({ token, isAuthenticated: !!token });
-        
-        // Update localStorage
-        if (typeof window !== 'undefined') {
-          if (token) {
-            localStorage.setItem('lockcloud_token', token);
-          } else {
-            localStorage.removeItem('lockcloud_token');
-          }
-        }
-      },
+  signIn: (token, user) => {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    localStorage.removeItem('lockcloud-auth');
+    set({ token, user, ready: true });
+  },
 
-      initialize: async () => {
-        // Check if token exists in localStorage or persisted state
-        if (typeof window !== 'undefined') {
-          const currentState = get();
-          const token = currentState.token || localStorage.getItem('lockcloud_token');
-          const user = currentState.user;
-          
-          if (token && user) {
-            // We have persisted auth data, set as authenticated immediately
-            set({ 
-              token, 
-              user,
-              isAuthenticated: true, 
-              isLoading: false
-            });
-            
-            // Verify token is still valid in background and get fresh user data
-            try {
-              const freshUser = await authApi.getMe();
-              set((state) => ({
-                ...state,
-                user: freshUser,
-                token,
-                isAuthenticated: true,
-                isLoading: false,
-              }));
-            } catch (error) {
-              console.error('Token validation failed:', error);
-              get().logout();
-            }
-          } else {
-            set({ isLoading: false, isAuthenticated: false });
-          }
-        }
-      },
-    }),
-    {
-      name: 'lockcloud-auth',
-      partialize: (state) => ({
-        token: state.token,
-        user: state.user,
-      }),
-    }
-  )
-);
+  signOut: () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem('lockcloud-auth');
+    initializing = null;
+    set({ token: null, user: null });
+  },
+}));
+
+export const useUser = () => useAuthStore((s) => s.user);
+export const useIsAdmin = () => useAuthStore((s) => !!s.user?.is_admin);

@@ -1,12 +1,11 @@
-"""WSGI entry point for production deployment.
-
-scheduler 只在这里启,scripts/CLI 调用 create_app() 不会偷偷起。
 """
-from app import create_app
-from services.scheduler import start_scheduler
+兼容旧的启动命令：线上 tmux 里一直是 `gunicorn -c gunicorn.conf.py wsgi:app`。
 
-app = create_app()
-start_scheduler(app)
+名字虽然叫 wsgi，这里导出的其实是 ASGI 应用；gunicorn.conf.py 指定了
+uvicorn_worker.UvicornWorker，所以旧命令不用改也能跑新后端。定时任务在 app.py 的 lifespan 里启动。
+新部署请用 asgi:app。
+"""
 
-if __name__ == "__main__":
-    app.run(port=5001)
+from asgi import app
+
+application = app

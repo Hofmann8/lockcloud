@@ -6,20 +6,19 @@
 
 设计要点:
   - BackgroundScheduler + SQLAlchemyJobStore(主 DB,共享 sqlite 表 apscheduler_jobs)
-    gunicorn 多 worker 时,job 触发瞬间只有一个 worker 抢到 DB 行锁,天然单点。
-    不需要外部 redis / 文件 lock
-  - **只在 wsgi.py 显式调用 start_scheduler(app) 才启动** —— scripts/CLI 走
-    create_app() 不启,避免 `python scripts/xxx.py` 也偷偷起一个 scheduler
+  - **只在 app.py 的 lifespan 里调用 start_scheduler() 才启动** —— scripts 不导入 app,
+    避免 `python scripts/xxx.py` 也偷偷起一个 scheduler
   - SQLAlchemyJobStore 会 pickle job function + args 落库,所以:
-    * job function 必须是 **模块顶级函数**(不能是 closure / lambda / app context 闭包)
-    * args 必须是 **picklable 基础类型**(str / list / int,**不能传 Flask app 对象**)
-  - 任务用 subprocess 调起,每个任务是独立 Flask CLI / Python 进程,
+    * job function 必须是 **模块顶级函数**(不能是 closure / lambda)
+    * args 必须是 **picklable 基础类型**(str / list / int)
+  - 任务用 subprocess 调起,每个任务是独立 Python 进程,
     出错不影响主 web 进程;日志独立到 logs/scheduler/<task>.log
   - 时区固定 Asia/Shanghai
 
 任务表(每天):
-  03:00  preheat_videos     调缤纷云 HLS 防转码缓存被回收(参 [[preheat_videos.py]])
-  03:30  backup_database    sqlite 落公开桶 backups/(参 [[backup_database.py]])
+  03:00  cleanup_uploads    清掉超过一天没确认的上传(票据 + 桶里的残留对象)
+  03:00  purge_trash        彻底删除进回收站超过 30 天的文件(桶里的对象 + 人脸、向量、评论、行)
+  03:30  backup_database    sqlite 落私有桶 backups/db/(参 [[backup_database.py]])
   04:00  cluster_faces      DBSCAN 重整 person 簇,把新积的 noise 拉进来
 
 错峰 30min:避免同一时段 CPU/网 同时爆。
@@ -47,7 +46,7 @@ def run_subprocess(task_name, argv):
 
     必须是模块顶级函数 —— SQLAlchemyJobStore pickle 时只能引用 qualified name。
     args 全是 str / list,picklable。
-    日志直接写文件,不依赖 Flask app context(scheduler 线程没 context)。
+    日志直接写文件。
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"{task_name}.log"
@@ -76,18 +75,19 @@ def run_subprocess(task_name, argv):
 
 # 任务表(改时间或加任务就改这里)
 # id, hour, minute, argv
-_FLASK = [sys.executable, "-m", "flask"]
 _PY = [sys.executable]
 JOBS = [
-    ("preheat_videos",   3, 0,  _FLASK + ["preheat-videos"]),
+    ("cleanup_uploads",  3, 0,  _PY + ["scripts/cleanup_uploads.py"]),
+    ("purge_trash",      3, 0,  _PY + ["scripts/purge_trash.py"]),
     ("backup_database",  3, 30, _PY + ["scripts/backup_database.py"]),
-    ("cluster_faces",    4, 0,  _FLASK + ["cluster-faces"]),
+    ("cluster_faces",    4, 0,  _PY + ["scripts/cluster_faces.py"]),
 ]
 
 
-def start_scheduler(app):
+def start_scheduler():
     """启动 BackgroundScheduler。重复调用 idempotent。
 
+    生产只有 1 个 worker(见 gunicorn.conf.py);万一开了多个,下面的文件锁保证只有一个起。
     多 gunicorn worker 的坑:
       1) 每个 worker fork 后都会调 start_scheduler,**两边一起 CREATE TABLE
          apscheduler_jobs 会撞表**,一个赢一个 crash → master 退出
@@ -98,15 +98,11 @@ def start_scheduler(app):
     """
     global _scheduler
     if _scheduler is not None and _scheduler.running:
-        app.logger.info("[scheduler] 已经在跑,跳过")
+        log.info("[scheduler] 已经在跑,跳过")
         return _scheduler
 
-    if app.config.get("TESTING"):
-        app.logger.info("[scheduler] TESTING 模式,不启动")
-        return None
-
     if os.environ.get("LOCKCLOUD_SCHEDULER_DISABLED") == "1":
-        app.logger.info("[scheduler] LOCKCLOUD_SCHEDULER_DISABLED=1,不启动")
+        log.info("[scheduler] LOCKCLOUD_SCHEDULER_DISABLED=1,不启动")
         return None
 
     # ---- 抢文件锁,避免多 worker 同时起 ----
@@ -124,17 +120,16 @@ def start_scheduler(app):
             # 进程退出时自动释放(fh 全局保留即可,防止 GC)
             globals()["_scheduler_lock_fh"] = _lock_fh
         except (BlockingIOError, OSError):
-            app.logger.info(
-                "[scheduler] 另一个 worker 已经持有锁,本 worker 不启 scheduler"
-            )
+            log.info("[scheduler] 另一个 worker 已经持有锁,本 worker 不启 scheduler")
             return None
 
     from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
 
-    db_url = app.config.get("SQLALCHEMY_DATABASE_URI")
-    jobstore = SQLAlchemyJobStore(url=db_url, tablename="apscheduler_jobs")
+    # 和 Flask 版一样直接用 DATABASE_URL：相对路径按工作目录（backend/）解析，任务表不在 instance/ 的主库里
+    from config import settings
+    jobstore = SQLAlchemyJobStore(url=settings.database_url, tablename="apscheduler_jobs")
 
     sched = BackgroundScheduler(
         jobstores={"default": jobstore},
@@ -161,12 +156,12 @@ def start_scheduler(app):
     lines = ["[scheduler] 启动完成,任务表(Asia/Shanghai):"]
     for job in sched.get_jobs():
         lines.append(f"  - {job.id:<20s} next={job.next_run_time}")
-    app.logger.info("\n".join(lines))
+    log.info("\n".join(lines))
     return sched
 
 
 def shutdown_scheduler():
-    """gunicorn worker 退出时调,优雅停。"""
+    """进程退出时(lifespan 结束)调,优雅停。"""
     global _scheduler
     if _scheduler is not None and _scheduler.running:
         _scheduler.shutdown(wait=False)

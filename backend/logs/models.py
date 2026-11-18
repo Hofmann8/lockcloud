@@ -1,9 +1,10 @@
-"""
-Logging models for LockCloud
-"""
+"""操作日志。"""
 import enum
 from datetime import datetime
-from extensions import db
+
+import sqlalchemy as sa
+
+from database import Base
 
 
 class OperationType(enum.Enum):
@@ -14,18 +15,18 @@ class OperationType(enum.Enum):
     UPDATE = 'update'
 
 
-class FileLog(db.Model):
+class FileLog(Base):
     """File log model for audit trail"""
     __tablename__ = 'file_logs'
     
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-    file_id = db.Column(db.Integer, db.ForeignKey('files.id'), nullable=True, index=True)
-    operation = db.Column(db.Enum(OperationType), nullable=False, index=True)
-    file_path = db.Column(db.String(1000))
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
-    ip_address = db.Column(db.String(45))
-    user_agent = db.Column(db.Text)
+    id = sa.Column(sa.Integer, primary_key=True)
+    user_id = sa.Column(sa.Integer, sa.ForeignKey('users.id'), nullable=False, index=True)
+    file_id = sa.Column(sa.Integer, sa.ForeignKey('files.id'), nullable=True, index=True)
+    operation = sa.Column(sa.Enum(OperationType), nullable=False, index=True)
+    file_path = sa.Column(sa.String(1000))
+    timestamp = sa.Column(sa.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    ip_address = sa.Column(sa.String(45))
+    user_agent = sa.Column(sa.Text)
     
     def __repr__(self):
         return f'<FileLog {self.operation.value} by user {self.user_id}>'
